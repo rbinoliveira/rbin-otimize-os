@@ -243,6 +243,115 @@ display_memory_stats() {
     print_info ""
 }
 
+# Clear user caches selectively
+clear_user_caches() {
+    print_info "=== User Cache Cleanup ==="
+
+    local cache_dir="${HOME}/Library/Caches"
+
+    if [[ ! -d "$cache_dir" ]]; then
+        print_info "User cache directory not found: $cache_dir"
+        return 0
+    fi
+
+    # Preserve list (critical caches)
+    local preserve_list=(
+        "com.apple.dt.Xcode"
+        "Homebrew"
+        "com.google.Chrome"
+        "com.apple.Safari"
+    )
+
+    print_info "Scanning user cache directory..."
+
+    local folders_processed=0
+    local folders_deleted=0
+    local folders_preserved=0
+    local total_freed_mb=0
+
+    # Find cache folders
+    while IFS= read -r cache_folder; do
+        if [[ -z "$cache_folder" ]] || [[ ! -d "$cache_folder" ]]; then
+            continue
+        fi
+
+        folders_processed=$((folders_processed + 1))
+        local folder_name=$(basename "$cache_folder")
+
+        # Check if should preserve
+        local should_preserve=false
+        for preserve_item in "${preserve_list[@]}"; do
+            if [[ "$folder_name" == "$preserve_item" ]] || [[ "$folder_name" == *"$preserve_item"* ]]; then
+                should_preserve=true
+                break
+            fi
+        done
+
+        if [[ "$should_preserve" == "true" ]]; then
+            folders_preserved=$((folders_preserved + 1))
+            print_debug "Preserved: $folder_name"
+            continue
+        fi
+
+        # Calculate size
+        local size_str=$(du -sh "$cache_folder" 2>/dev/null | awk '{print $1}' || echo "0")
+        local size_mb=$(du -sm "$cache_folder" 2>/dev/null | awk '{print $1}' || echo "0")
+
+        # Check if old (>30 days)
+        local is_old=false
+        if find "$cache_folder" -type f -mtime +30 2>/dev/null | head -1 | grep -q .; then
+            is_old=true
+        fi
+
+        # In aggressive mode, prompt for each cache
+        if [[ "$AGGRESSIVE" == "true" ]] && [[ "$is_old" == "true" ]]; then
+            if is_dry_run; then
+                print_info "[DRY-RUN] Would delete: $folder_name (${size_str}, old cache)"
+            else
+                print_info "Delete cache: $folder_name (${size_str}, old cache)? (y/N): "
+                read -r response
+                if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                    folders_preserved=$((folders_preserved + 1))
+                    continue
+                fi
+            fi
+        elif [[ "$is_old" == "false" ]]; then
+            # Skip non-old caches unless aggressive
+            if [[ "$AGGRESSIVE" != "true" ]]; then
+                folders_preserved=$((folders_preserved + 1))
+                continue
+            fi
+        fi
+
+        # Delete cache
+        if is_dry_run; then
+            print_info "[DRY-RUN] Would delete: $folder_name (${size_str})"
+            total_freed_mb=$((total_freed_mb + size_mb))
+            folders_deleted=$((folders_deleted + 1))
+        else
+            if rm -rf "$cache_folder" 2>/dev/null; then
+                print_success "Deleted: $folder_name (${size_str})"
+                log_message "INFO" "Deleted user cache: $folder_name (${size_str})"
+                total_freed_mb=$((total_freed_mb + size_mb))
+                folders_deleted=$((folders_deleted + 1))
+            else
+                print_warning "Failed to delete: $folder_name (may be locked)"
+                log_message "WARN" "Failed to delete user cache: $folder_name"
+            fi
+        fi
+    done < <(find "$cache_dir" -maxdepth 1 -type d ! -path "$cache_dir" 2>/dev/null)
+
+    print_info ""
+    print_info "Summary:"
+    print_info "  Folders processed: $folders_processed"
+    print_info "  Folders deleted: $folders_deleted"
+    print_info "  Folders preserved: $folders_preserved"
+    if [[ $total_freed_mb -gt 0 ]]; then
+        print_success "  Space freed: ${total_freed_mb} MB"
+    fi
+    print_info ""
+}
+
 # Parse command-line arguments
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
@@ -664,8 +773,8 @@ main() {
     clear_font_cache
     print_info ""
 
-    # Clean user cache
-    clean_user_cache
+    # Clean user cache (selective deletion)
+    clear_user_caches
     print_info ""
 
     # Clean system cache (basic, safe implementation)
