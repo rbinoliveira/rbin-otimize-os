@@ -19,9 +19,14 @@ else
     COLOR_RESET='\033[0m'
 fi
 
-# Project root directory (where this script is located)
+# Project root directory (parent of scripts/ directory)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$SCRIPT_DIR"
+# If we're in scripts/, go up one level to get project root
+if [[ "$(basename "$SCRIPT_DIR")" == "scripts" ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    PROJECT_ROOT="$SCRIPT_DIR"
+fi
 
 # Dry-run mode flag
 DRY_RUN=false
