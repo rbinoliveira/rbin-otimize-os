@@ -81,9 +81,36 @@ log_message() {
     local level="$1"
     local message="$2"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local script_name=$(basename "$0")
+    local pid=$$
 
+    # Format: [TIMESTAMP] [LEVEL] [SCRIPT:PID] Message
+    local log_entry="[$timestamp] [$level] [${script_name}:${pid}] $message"
+
+    # Write to log file if available
     if [[ -n "$LOG_FILE" ]]; then
-        echo "[$timestamp] [$level] $message" >> "$LOG_FILE" 2>/dev/null || true
+        echo "$log_entry" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+
+    # Also write to console unless --quiet
+    if [[ "$QUIET" != "true" ]] && [[ "$level" != "DEBUG" ]] || [[ "$VERBOSE" == "true" ]]; then
+        # Color code based on level
+        case "$level" in
+            ERROR)
+                print_error "$message"
+                ;;
+            WARN)
+                print_warning "$message"
+                ;;
+            SUCCESS)
+                print_success "$message"
+                ;;
+            INFO|DEBUG)
+                if [[ "$VERBOSE" == "true" ]] || [[ "$level" == "INFO" ]]; then
+                    print_info "$message"
+                fi
+                ;;
+        esac
     fi
 }
 
@@ -1002,6 +1029,46 @@ main() {
     print_info "=============================================="
     print_success "Memory cleaning completed!"
     print_info ""
+
+    # Generate operation summary
+    local operations_done=""
+    local operations_skipped=""
+    local total_space_freed=0
+
+    # Count operations
+    if [[ "$DRY_RUN" != "true" ]]; then
+        operations_done="Memory purge, DNS cache flush, Font cache clear"
+        if [[ "$AGGRESSIVE" == "true" ]]; then
+            operations_done="${operations_done}, User cache cleaning, System cache cleaning"
+        else
+            operations_skipped="System cache cleaning (use --aggressive to enable)"
+        fi
+    else
+        operations_done="[DRY-RUN] All operations previewed"
+    fi
+
+    # Log summary
+    if [[ -n "$LOG_FILE" ]]; then
+        {
+            echo ""
+            echo "=========================================="
+            echo "Operation Summary"
+            echo "=========================================="
+            echo "Operations Performed: $operations_done"
+            if [[ -n "$operations_skipped" ]]; then
+                echo "Operations Skipped: $operations_skipped"
+            fi
+            echo "Memory Stats:"
+            echo "  Before: Total=${MEM_TOTAL_BEFORE}MB, Free=${MEM_FREE_BEFORE}MB, Inactive=${MEM_INACTIVE_BEFORE}MB"
+            echo "  After:  Total=${MEM_TOTAL_AFTER}MB, Free=${MEM_FREE_AFTER}MB, Inactive=${MEM_INACTIVE_AFTER}MB"
+            local memory_freed=$((MEM_FREE_AFTER - MEM_FREE_BEFORE))
+            if [[ $memory_freed -gt 0 ]]; then
+                echo "  Memory Freed: ${memory_freed} MB"
+            fi
+            echo "Total Impact: Memory optimization completed"
+            echo "=========================================="
+        } >> "$LOG_FILE"
+    fi
 
     if [[ -n "$LOG_FILE" ]]; then
         print_info "Log file: $LOG_FILE"
