@@ -11,6 +11,13 @@
 
 A cross-platform OS optimization toolkit that helps users clean and optimize system resources when their computer is running slow. This project provides dedicated optimization scripts for macOS and Linux operating systems.
 
+**Features:**
+- **Memory Optimization**: Clear inactive memory, purge caches, and free RAM
+- **CPU Optimization**: Identify and manage CPU-intensive processes
+- **Disk Management**: Analyze disk usage and cleanup unnecessary files
+- **System Monitoring**: Real-time performance dashboard
+- **Safety First**: Dry-run mode, preview before cleanup, rollback support
+
 ## ⚠️ Warning
 
 <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 16px 0;">
@@ -104,6 +111,21 @@ That's it! No manual setup required.
 ./linux/optimize-cpu.sh --process-threshold 30
 ```
 
+**Disk Management:**
+```bash
+# Analyze disk usage
+./mac/analyze-disk.sh --dry-run
+./mac/analyze-disk.sh --items=20
+
+# Cleanup disk space
+./mac/cleanup-disk.sh --dry-run
+./mac/cleanup-disk.sh --force --min-age=30
+
+# Linux
+./linux/analyze-disk.sh --dry-run
+./linux/cleanup-disk.sh --dry-run --force
+```
+
 ## Script Descriptions
 
 ### macOS Scripts
@@ -130,6 +152,21 @@ That's it! No manual setup required.
 - Comprehensive JSON reports
 - System snapshots and rollback checkpoints
 - **Execution time**: ~60-120 seconds
+
+#### `analyze-disk.sh`
+- Analyzes disk usage by category (caches, logs, downloads, temp, etc.)
+- Shows top N largest files and folders
+- Identifies cleanup opportunities
+- Categorized disk usage report
+- **Execution time**: ~30-90 seconds
+
+#### `cleanup-disk.sh`
+- Cleans up unnecessary files to free disk space
+- Preview before cleanup (shows what will be deleted)
+- Interactive confirmation prompts
+- Age-based filtering (--min-age=N days)
+- Safe deletion with rollback support
+- **Execution time**: ~60-180 seconds
 
 ### Linux Scripts
 
@@ -158,7 +195,80 @@ That's it! No manual setup required.
 - Email notifications (optional)
 - **Execution time**: ~60-150 seconds
 
+#### `analyze-disk.sh`
+- Analyzes disk usage by category
+- Platform-specific categories (apt/yum/pacman/snap for Linux)
+- Shows top N largest items (files and folders combined)
+- Identifies cleanup opportunities above threshold
+- **Execution time**: ~30-90 seconds
+
+#### `cleanup-disk.sh`
+- Cleans disk space by removing unnecessary files
+- Linux-specific: package manager caches, Docker volumes, old kernels
+- Preview mechanism before cleanup
+- Age-based filtering for selective cleanup
+- Safe deletion with proper permission handling
+- **Execution time**: ~60-180 seconds
+
+## Disk Cleanup Safety
+
+The disk cleanup feature includes several safety mechanisms:
+
+- **Preview Mode**: Always shows what will be cleaned before deletion
+- **Interactive Confirmations**: Prompts for confirmation before deleting files
+- **Dry-Run Support**: Use `--dry-run` to preview without making changes
+- **Age Filtering**: Use `--min-age=N` to only clean files older than N days
+- **Force Mode**: Use `--force` to skip confirmations (use with caution)
+
+**What gets cleaned:**
+- User caches (`~/Library/Caches` on macOS, `~/.cache` on Linux)
+- System logs (old log files)
+- Temporary files (`/tmp`, `/var/tmp`)
+- Browser trash/recycle bin
+- Package manager caches (apt, yum, pacman, snap on Linux)
+- Node modules cache
+- Docker volumes (if specified)
+
+**What is NOT cleaned:**
+- User documents and personal files
+- Application data (unless in cache directories)
+- System binaries and libraries
+- Configuration files
+
 ## Command-Line Flags
+
+### Common Flags (All Scripts)
+
+- `--dry-run, -n`: Preview changes without executing them
+- `--verbose, -v`: Show detailed output
+- `--quiet, -q`: Suppress non-error output
+- `--help, -h`: Show help message
+
+### Disk Analysis Scripts (`analyze-disk.sh`)
+
+- `--items=N`: Show top N largest items (default: 20)
+
+**Examples:**
+```bash
+./mac/analyze-disk.sh --dry-run
+./mac/analyze-disk.sh --items=50 --verbose
+```
+
+### Disk Cleanup Scripts (`cleanup-disk.sh`)
+
+- `--force, -f`: Skip confirmation prompts (use with caution)
+- `--min-age=N`: Only clean files older than N days (default: 0, all files)
+
+**Examples:**
+```bash
+./mac/cleanup-disk.sh --dry-run
+./mac/cleanup-disk.sh --force --min-age=30
+./mac/cleanup-disk.sh --min-age=7  # Only files older than 7 days
+```
+
+### Memory Cleaning Scripts (`clean-memory.sh`)
+
+- `--aggressive`: Enable aggressive cleaning mode
 
 | Flag | Description | Example |
 |------|-------------|---------|
