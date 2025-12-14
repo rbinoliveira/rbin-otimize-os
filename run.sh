@@ -302,30 +302,37 @@ show_menu() {
         print_info "======================="
         print_info "Detected OS: $OS_TYPE"
         print_info ""
-        print_info "Select an optimization to run:"
+        print_info "Memory & CPU Optimization:"
+        print_info "  1) Clean Memory Only"
+        print_info "     - Clears inactive memory and caches"
         print_info ""
-        print_info "1) Clean Memory Only"
-        print_info "   - Clears inactive memory and caches"
+        print_info "  2) Optimize CPU Only"
+        print_info "     - Identifies and manages CPU-intensive processes"
         print_info ""
-        print_info "2) Optimize CPU Only"
-        print_info "   - Identifies and manages CPU-intensive processes"
+        print_info "  3) Combined Optimization (Memory + CPU)"
+        print_info "     - Full system optimization with progress reporting"
         print_info ""
-        print_info "3) Combined Optimization (Memory + CPU)"
-        print_info "   - Full system optimization with progress reporting"
+        print_info "Disk Management:"
+        print_info "  4) Analyze Disk Usage"
+        print_info "     - Analyze disk usage by category and identify large files"
         print_info ""
-        print_info "4) View Logs"
-        print_info "   - Browse and filter optimization logs"
+        print_info "  5) Cleanup Disk Space"
+        print_info "     - Clean up unnecessary files and free disk space"
         print_info ""
-        print_info "5) Performance Dashboard"
-        print_info "   - Real-time system metrics and statistics"
+        print_info "Utilities:"
+        print_info "  6) View Logs"
+        print_info "     - Browse and filter optimization logs"
         print_info ""
-        print_info "6) Rollback System"
-        print_info "   - Restore system from previous snapshot"
+        print_info "  7) Performance Dashboard"
+        print_info "     - Real-time system metrics and statistics"
         print_info ""
-        print_info "7) Uninstall"
-        print_info "   - Remove all installed components"
+        print_info "  8) Rollback System"
+        print_info "     - Restore system from previous snapshot"
         print_info ""
-        print_info "8) Exit"
+        print_info "  9) Uninstall"
+        print_info "     - Remove all installed components"
+        print_info ""
+        print_info "  0) Exit"
         print_info ""
 
         # Check sudo warning
@@ -343,8 +350,8 @@ show_menu() {
             print_info ""
         fi
 
-        PS3="Select an option (1-8): "
-        select choice in "Clean Memory Only" "Optimize CPU Only" "Combined Optimization (Memory + CPU)" "View Logs" "Performance Dashboard" "Rollback System" "Uninstall" "Exit"; do
+        PS3="Select an option (0-9): "
+        select choice in "Clean Memory Only" "Optimize CPU Only" "Combined Optimization (Memory + CPU)" "Analyze Disk Usage" "Cleanup Disk Space" "View Logs" "Performance Dashboard" "Rollback System" "Uninstall" "Exit"; do
             case $REPLY in
                 1)
                     execute_script "clean-memory.sh"
@@ -359,27 +366,35 @@ show_menu() {
                     break
                     ;;
                 4)
-                    execute_utility "view-logs.sh"
+                    execute_script "analyze-disk.sh"
                     break
                     ;;
                 5)
-                    execute_utility "dashboard.sh"
+                    execute_script "cleanup-disk.sh"
                     break
                     ;;
                 6)
-                    execute_utility "rollback.sh"
+                    execute_utility "view-logs.sh"
                     break
                     ;;
                 7)
-                    execute_utility "uninstall.sh"
+                    execute_utility "dashboard.sh"
                     break
                     ;;
                 8)
+                    execute_utility "rollback.sh"
+                    break
+                    ;;
+                9)
+                    execute_utility "uninstall.sh"
+                    break
+                    ;;
+                0|10)
                     print_info "Exiting..."
                     exit 0
                     ;;
                 *)
-                    print_error "Invalid selection. Please choose 1-8."
+                    print_error "Invalid selection. Please choose 0-9."
                     sleep 1
                     break
                     ;;
