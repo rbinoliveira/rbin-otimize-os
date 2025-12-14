@@ -6,20 +6,18 @@
 
 set -euo pipefail
 
-# Script configuration
 SCRIPT_VERSION="1.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_DIR="${HOME}/.os-optimize/logs"
 LOG_FILE=""
 
-# Execution flags
 DRY_RUN=false
 VERBOSE=false
 QUIET=false
 ITEMS_COUNT=20
 
-# Source common libraries
+# ============ Library Dependencies ============
 if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
     source "${PROJECT_ROOT}/lib/common.sh"
 else
@@ -34,7 +32,8 @@ else
     exit 1
 fi
 
-# Initialize logging
+# ============ Logging Initialization ============
+
 init_logging() {
     if mkdir -p "$LOG_DIR" 2>/dev/null; then
         chmod 755 "$LOG_DIR" 2>/dev/null || true
@@ -63,7 +62,8 @@ init_logging() {
     fi
 }
 
-# Parse command-line arguments
+# ============ Argument Parsing ============
+
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -106,7 +106,6 @@ parse_arguments() {
     fi
 }
 
-# Show help message
 show_help() {
     cat << EOF
 macOS Disk Analysis Script v$SCRIPT_VERSION
@@ -129,7 +128,8 @@ Description:
 EOF
 }
 
-# Get top N largest items (files and folders combined)
+# ============ Disk Analysis Functions ============
+
 get_top_items() {
     local root_path="${1:-/}"
     local count="${2:-20}"
@@ -154,7 +154,6 @@ get_top_items() {
     printf '%s\n' "${items[@]}" | head -n $count
 }
 
-# Display categorized analysis
 display_categorized_analysis() {
     print_info ""
     print_info "=========================================="
@@ -190,7 +189,6 @@ display_categorized_analysis() {
     print_info ""
 }
 
-# Display top N largest items
 display_top_items() {
     local count="$1"
 
@@ -220,7 +218,6 @@ display_top_items() {
     print_info ""
 }
 
-# Display cleanup opportunities
 display_cleanup_opportunities() {
     print_info "=========================================="
     print_info "Cleanup Opportunities"

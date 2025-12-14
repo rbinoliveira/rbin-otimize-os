@@ -6,21 +6,19 @@
 
 set -euo pipefail
 
-# Script configuration
 SCRIPT_VERSION="1.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_DIR="${HOME}/.os-optimize/logs"
 LOG_FILE=""
 
-# Execution flags
 DRY_RUN=false
 VERBOSE=false
 QUIET=false
 FORCE=false
 MIN_AGE_DAYS=0
 
-# Source common libraries
+# ============ Library Dependencies ============
 if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
     source "${PROJECT_ROOT}/lib/common.sh"
 else
@@ -42,7 +40,8 @@ else
     exit 1
 fi
 
-# Initialize logging
+# ============ Logging Initialization ============
+
 init_logging() {
     if mkdir -p "$LOG_DIR" 2>/dev/null; then
         chmod 755 "$LOG_DIR" 2>/dev/null || true
@@ -71,7 +70,8 @@ init_logging() {
     fi
 }
 
-# Parse command-line arguments
+# ============ Argument Parsing ============
+
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -119,7 +119,6 @@ parse_arguments() {
     fi
 }
 
-# Show help message
 show_help() {
     cat << EOF
 macOS Disk Cleanup Script v$SCRIPT_VERSION
