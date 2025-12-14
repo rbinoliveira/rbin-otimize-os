@@ -13,11 +13,10 @@ fi
 readonly DISK_ANALYSIS_SH_LOADED=1
 readonly DISK_ANALYSIS_VERSION="1.0.0"
 
-# Configuration
-HIGHLIGHT_THRESHOLD="${HIGHLIGHT_THRESHOLD:-100}"  # MB
-ANALYSIS_TIMEOUT="${ANALYSIS_TIMEOUT:-300}"  # seconds
+HIGHLIGHT_THRESHOLD="${HIGHLIGHT_THRESHOLD:-100}"
+ANALYSIS_TIMEOUT="${ANALYSIS_TIMEOUT:-300}"
 
-# Source common.sh for logging and platform detection
+# ============ Library Dependencies ============
 if [[ -z "${COMMON_SH_LOADED:-}" ]]; then
     # Try to source from same directory as this script
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,7 +28,8 @@ if [[ -z "${COMMON_SH_LOADED:-}" ]]; then
     fi
 fi
 
-# Format bytes to human-readable format
+# ============ Disk Analysis Functions ============
+
 format_bytes() {
     local bytes="$1"
     local precision="${2:-2}"
@@ -62,7 +62,6 @@ format_bytes() {
     fi
 }
 
-# Get disk categories for the current platform
 get_disk_categories() {
     if is_macos; then
         echo "caches logs downloads temp browser_trash xcode node_modules docker volumes"
@@ -73,7 +72,6 @@ get_disk_categories() {
     fi
 }
 
-# Analyze disk usage for a specific path
 analyze_disk_usage() {
     local path="${1:-}"
     local category="${2:-unknown}"
@@ -88,18 +86,13 @@ analyze_disk_usage() {
     local file_count=0
     local dir_count=0
 
-    # Use du command for accurate size calculation
     if command -v du >/dev/null 2>&1; then
-        # Get total size in bytes (or KB on some systems)
         local size_output=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
-        total_size=$((size_output * 1024))  # Convert KB to bytes
-
-        # Count files and directories
+        total_size=$((size_output * 1024))
         file_count=$(find "$path" -maxdepth "$max_depth" -type f 2>/dev/null | wc -l | tr -d ' ')
         dir_count=$(find "$path" -maxdepth "$max_depth" -type d 2>/dev/null | wc -l | tr -d ' ')
     else
         log_warn "du command not found, using find as fallback"
-        # Fallback: use find and stat
         local sizes=$(find "$path" -maxdepth "$max_depth" -type f -exec stat -f%z {} \; 2>/dev/null || find "$path" -maxdepth "$max_depth" -type f -exec stat -c%s {} \; 2>/dev/null)
         for size in $sizes; do
             total_size=$((total_size + size))
@@ -108,15 +101,11 @@ analyze_disk_usage() {
         dir_count=$(find "$path" -maxdepth "$max_depth" -type d 2>/dev/null | wc -l | tr -d ' ')
     fi
 
-    # Format output
     local size_formatted=$(format_bytes "$total_size")
     local size_mb=$((total_size / 1024 / 1024))
-
-    # Create result string
     echo "${category}|${path}|${total_size}|${size_formatted}|${size_mb}|${file_count}|${dir_count}"
 }
 
-# Get category path based on platform and category name
 get_category_path() {
     local category="$1"
 
@@ -228,11 +217,11 @@ analyze_all_categories() {
         fi
     done
 
-    # Return results as newline-separated string
     printf '%s\n' "${results[@]}"
 }
 
-# Export functions
+# ============ Function Exports ============
+
 export -f format_bytes
 export -f get_disk_categories
 export -f analyze_disk_usage

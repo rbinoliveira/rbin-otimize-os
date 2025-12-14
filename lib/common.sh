@@ -43,12 +43,10 @@ AUTO_CONFIRM="${AUTO_CONFIRM:-false}"
 LOG_DIR="${HOME}/.os-optimize/logs"
 LOG_FILE=""
 
-# Check if terminal is interactive
 is_terminal() {
     [[ -t 1 ]]
 }
 
-# Color echo function
 color_echo() {
     local color="$1"
     shift
@@ -67,7 +65,8 @@ color_echo() {
     fi
 }
 
-# Logging functions
+# ============ Logging Functions ============
+
 init_logging() {
     local script_name="${1:-unknown}"
 
@@ -123,7 +122,8 @@ log_debug() {
     log_message "DEBUG" "$@"
 }
 
-# Validation functions
+# ============ Validation Functions ============
+
 require_sudo() {
     if [[ $EUID -eq 0 ]]; then
         return 0
@@ -205,7 +205,8 @@ check_disk_space() {
     return 0
 }
 
-# User interaction functions
+# ============ User Interaction Functions ============
+
 show_progress() {
     local percent="$1"
     local message="${2:-}"
@@ -275,7 +276,8 @@ confirm() {
     fi
 }
 
-# Error handling
+# ============ Error Handling ============
+
 die() {
     local message="$1"
     local exit_code="${2:-$EXIT_FAILURE}"
@@ -290,21 +292,18 @@ cleanup() {
     true
 }
 
-# Register cleanup handlers
 CLEANUP_HANDLERS=()
 
 register_cleanup() {
     CLEANUP_HANDLERS+=("$1")
 }
 
-# System information functions
-# Platform detection functions
+# ============ Platform Detection ============
+
 get_os_type() {
     uname -s 2>/dev/null || echo "unknown"
 }
 
-# Platform detection compatibility functions
-# These provide is_macos() and is_linux() functions for cross-platform compatibility
 is_macos() {
     [[ $(get_os_type) == "Darwin" ]]
 }
@@ -313,8 +312,6 @@ is_linux() {
     [[ $(get_os_type) == "Linux" ]]
 }
 
-# Export PLATFORM variable for cross-platform compatibility
-# Set PLATFORM to "macos" or "linux" based on detected OS
 if is_macos; then
     export PLATFORM="macos"
 elif is_linux; then
@@ -383,7 +380,8 @@ get_arch() {
     uname -m 2>/dev/null || echo "unknown"
 }
 
-# File operations
+# ============ File Operations ============
+
 safe_delete() {
     local file="$1"
 
@@ -471,7 +469,8 @@ restore_file() {
     fi
 }
 
-# Lock file management
+# ============ Lock File Management ============
+
 acquire_lock() {
     local lock_file="${1:-/tmp/os-optimize.lock}"
     local timeout="${2:-300}"  # 5 minutes default
@@ -520,7 +519,8 @@ release_lock() {
     return 0
 }
 
-# Version comparison
+# ============ Version Comparison ============
+
 version_compare() {
     local version1="$1"
     local version2="$2"
@@ -553,7 +553,8 @@ version_compare() {
     echo "0"
 }
 
-# JSON utilities
+# ============ JSON Utilities ============
+
 json_escape() {
     local str="$1"
     echo "$str" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\n/\\n/g; s/\r/\\r/g; s/\t/\\t/g'
@@ -566,12 +567,12 @@ json_object() {
     echo "\"$key\": \"$escaped_value\""
 }
 
-# Dry-run check
 is_dry_run() {
     [[ "$DRY_RUN" == "true" ]]
 }
 
-# Print functions (using color_echo)
+# ============ Print Functions ============
+
 print_success() {
     color_echo green "✓ $*"
     log_success "$*"
@@ -599,10 +600,8 @@ print_debug() {
     fi
 }
 
-# Setup error handling
 trap 'cleanup; for handler in "${CLEANUP_HANDLERS[@]}"; do $handler; done' EXIT INT TERM
 
-# Error handler
 error_handler() {
     local line_num="$1"
     local command="$2"

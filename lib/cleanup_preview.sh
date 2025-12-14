@@ -33,10 +33,10 @@ if [[ -z "${DISK_ANALYSIS_SH_LOADED:-}" ]]; then
     fi
 fi
 
-# Global flags
 FORCE_MODE="${FORCE_MODE:-false}"
 
-# Get cleanup categories based on platform
+# ============ Cleanup Category Functions ============
+
 get_cleanup_categories() {
     if is_macos; then
         echo "caches logs downloads temp browser_trash xcode node_modules docker"
@@ -47,17 +47,14 @@ get_cleanup_categories() {
     fi
 }
 
-# Scan a cleanup category for files that can be cleaned
 scan_cleanup_category() {
     local category="$1"
-    local min_age_days="${2:-0}"  # Default: no age filter
+    local min_age_days="${2:-0}"
     local path=""
 
-    # Get path for category
     if command -v get_category_path >/dev/null 2>&1; then
         path=$(get_category_path "$category")
     else
-        # Fallback path detection
         case "$category" in
             caches)
                 path=$(is_macos && echo "${HOME}/Library/Caches" || echo "${HOME}/.cache")
@@ -213,7 +210,6 @@ cleanup_files_interactive() {
     local files=("${@:2}")
     local total_size=0
 
-    # Calculate total size
     for file in "${files[@]}"; do
         if [[ -f "$file" ]]; then
             local size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
@@ -248,7 +244,6 @@ cleanup_files_interactive() {
     return 0
 }
 
-# Delete files from a category
 delete_category_files() {
     local category="$1"
     local min_age_days="${2:-0}"
