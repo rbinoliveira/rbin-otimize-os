@@ -11,7 +11,7 @@ if [[ -n "${COMMON_SH_LOADED:-}" ]]; then
 fi
 
 readonly COMMON_SH_LOADED=1
-readonly VERSION="1.0.0"
+readonly VERSION="1.1.0"  # Updated for compatibility layer
 
 # Exit codes
 readonly EXIT_SUCCESS=0
@@ -298,9 +298,30 @@ register_cleanup() {
 }
 
 # System information functions
+# Platform detection functions
 get_os_type() {
     uname -s 2>/dev/null || echo "unknown"
 }
+
+# Compatibility functions for reference-proj libraries
+# These provide is_macos() and is_linux() functions similar to platform.sh
+is_macos() {
+    [[ $(get_os_type) == "Darwin" ]]
+}
+
+is_linux() {
+    [[ $(get_os_type) == "Linux" ]]
+}
+
+# Export PLATFORM variable for compatibility with reference-proj libraries
+# Set PLATFORM to "macos" or "linux" based on detected OS
+if is_macos; then
+    export PLATFORM="macos"
+elif is_linux; then
+    export PLATFORM="linux"
+else
+    export PLATFORM="unknown"
+fi
 
 get_os_version() {
     local os_type=$(get_os_type)
