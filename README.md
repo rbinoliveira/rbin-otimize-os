@@ -1,396 +1,15 @@
-# OS Optimization Scripts
-
-🇺🇸 [English](#english) | 🇧🇷 [Português](#português)
-
----
-
-<a id="english"></a>
-# English
-
-## Project Overview
-
-A cross-platform OS optimization toolkit that helps users clean and optimize system resources when their computer is running slow. This project provides dedicated optimization scripts for macOS and Linux operating systems.
-
-**Features:**
-- **Memory Optimization**: Clear inactive memory, purge caches, and free RAM
-- **CPU Optimization**: Identify and manage CPU-intensive processes
-- **Disk Management**: Analyze disk usage and cleanup unnecessary files
-- **System Monitoring**: Real-time performance dashboard
-- **Safety First**: Dry-run mode, preview before cleanup, rollback support
-
-## ⚠️ Warning
-
-<div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 16px 0;">
-
-**Use with caution!** These scripts perform system-level operations that can affect your computer's performance and stability. Always:
-
-- Run with `--dry-run` first to preview changes
-- Ensure you have backups of important data
-- Close critical applications before running
-- Test on non-production systems first
-
-</div>
-
-## Prerequisites
-
-- **macOS**: 10.13+ (High Sierra or later)
-- **Linux**: Ubuntu 20.04+, Fedora 36+, Debian 11+, or Arch Linux
-- **Bash**: 4.0+ (check with `bash --version`)
-- **Sudo access**: Required for system-level operations
-- **Disk space**: At least 5GB free recommended
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/rubinho-otimize-os.git
-cd rubinho-otimize-os
-```
-
-2. Run the main script (setup is automatic):
-```bash
-bash run.sh
-```
-
-The script will automatically:
-- Detect your operating system (macOS or Linux)
-- Run setup if needed (creates directories, sets permissions)
-- Show an interactive menu with all available options
-
-That's it! No manual setup required.
-
-## Usage
-
-### Quick Start
-
-**macOS:**
-```bash
-# Preview changes (recommended first)
-./mac/optimize-all.sh --dry-run
-
-# Run full optimization
-./mac/optimize-all.sh
-
-# Quick mode (non-interactive)
-./mac/optimize-all.sh --quick
-```
-
-**Linux:**
-```bash
-# Preview changes (recommended first)
-./linux/optimize-all.sh --dry-run
-
-# Run full optimization
-./linux/optimize-all.sh
-
-# Scheduled mode (for cron)
-./linux/optimize-all.sh --scheduled
-```
-
-### Individual Scripts
-
-**Memory Cleaning:**
-```bash
-# macOS
-./mac/clean-memory.sh --dry-run
-./mac/clean-memory.sh --aggressive
-
-# Linux
-./linux/clean-memory.sh --dry-run
-./linux/clean-memory.sh --cache-level 3
-```
-
-**CPU Optimization:**
-```bash
-# macOS
-./mac/optimize-cpu.sh --dry-run
-./mac/optimize-cpu.sh --process-threshold 50
-
-# Linux
-./linux/optimize-cpu.sh --dry-run
-./linux/optimize-cpu.sh --process-threshold 30
-```
-
-**Disk Management:**
-```bash
-# Analyze disk usage
-./mac/analyze-disk.sh --dry-run
-./mac/analyze-disk.sh --items=20
-
-# Cleanup disk space
-./mac/cleanup-disk.sh --dry-run
-./mac/cleanup-disk.sh --force --min-age=30
-
-# Linux
-./linux/analyze-disk.sh --dry-run
-./linux/cleanup-disk.sh --dry-run --force
-```
-
-## Script Descriptions
-
-### macOS Scripts
-
-#### `clean-memory.sh`
-- Clears inactive memory using `purge`
-- Purges disk cache
-- Clears DNS and font caches
-- Cleans user and system caches
-- **Execution time**: ~30-60 seconds
-- **Typical memory freed**: 2-8 GB
-
-#### `optimize-cpu.sh`
-- Identifies CPU-intensive processes
-- Safe process termination (protects critical processes)
-- System log cleanup (ASL and unified logs)
-- Spotlight indexing check
-- Launch daemon audit
-- **Execution time**: ~20-40 seconds
-
-#### `optimize-all.sh`
-- Orchestrates all optimization tasks
-- Progress indicators
-- Comprehensive JSON reports
-- System snapshots and rollback checkpoints
-- **Execution time**: ~60-120 seconds
-
-#### `analyze-disk.sh`
-- Analyzes disk usage by category (caches, logs, downloads, temp, etc.)
-- Shows top N largest files and folders
-- Identifies cleanup opportunities
-- Categorized disk usage report
-- **Execution time**: ~30-90 seconds
-
-#### `cleanup-disk.sh`
-- Cleans up unnecessary files to free disk space
-- Preview before cleanup (shows what will be deleted)
-- Interactive confirmation prompts
-- Age-based filtering (--min-age=N days)
-- Safe deletion with rollback support
-- **Execution time**: ~60-180 seconds
-
-### Linux Scripts
-
-#### `clean-memory.sh`
-- Drops page cache, dentries, and inodes
-- Swap management (clear if usage >50%)
-- Package manager cache cleanup (apt/dnf/pacman)
-- Systemd journal vacuum (keep last 7 days)
-- Thumbnail cache cleanup
-- **Execution time**: ~20-50 seconds
-- **Typical memory freed**: 1-4 GB
-
-#### `optimize-cpu.sh`
-- CPU usage monitoring
-- Process management with safe-kill protection
-- System log rotation and cleanup
-- Zombie process detection
-- Systemd service audit
-- **Execution time**: ~30-60 seconds
-
-#### `optimize-all.sh`
-- Full optimization workflow
-- Distribution detection
-- System snapshot capture
-- JSON report generation
-- Email notifications (optional)
-- **Execution time**: ~60-150 seconds
-
-#### `analyze-disk.sh`
-- Analyzes disk usage by category
-- Platform-specific categories (apt/yum/pacman/snap for Linux)
-- Shows top N largest items (files and folders combined)
-- Identifies cleanup opportunities above threshold
-- **Execution time**: ~30-90 seconds
-
-#### `cleanup-disk.sh`
-- Cleans disk space by removing unnecessary files
-- Linux-specific: package manager caches, Docker volumes, old kernels
-- Preview mechanism before cleanup
-- Age-based filtering for selective cleanup
-- Safe deletion with proper permission handling
-- **Execution time**: ~60-180 seconds
-
-## Disk Cleanup Safety
-
-The disk cleanup feature includes several safety mechanisms:
-
-- **Preview Mode**: Always shows what will be cleaned before deletion
-- **Interactive Confirmations**: Prompts for confirmation before deleting files
-- **Dry-Run Support**: Use `--dry-run` to preview without making changes
-- **Age Filtering**: Use `--min-age=N` to only clean files older than N days
-- **Force Mode**: Use `--force` to skip confirmations (use with caution)
-
-**What gets cleaned:**
-- User caches (`~/Library/Caches` on macOS, `~/.cache` on Linux)
-- System logs (old log files)
-- Temporary files (`/tmp`, `/var/tmp`)
-- Browser trash/recycle bin
-- Package manager caches (apt, yum, pacman, snap on Linux)
-- Node modules cache
-- Docker volumes (if specified)
-
-**What is NOT cleaned:**
-- User documents and personal files
-- Application data (unless in cache directories)
-- System binaries and libraries
-- Configuration files
-
-## Command-Line Flags
-
-### Common Flags (All Scripts)
-
-- `--dry-run, -n`: Preview changes without executing them
-- `--verbose, -v`: Show detailed output
-- `--quiet, -q`: Suppress non-error output
-- `--help, -h`: Show help message
-
-### Disk Analysis Scripts (`analyze-disk.sh`)
-
-- `--items=N`: Show top N largest items (default: 20)
-
-**Examples:**
-```bash
-./mac/analyze-disk.sh --dry-run
-./mac/analyze-disk.sh --items=50 --verbose
-```
-
-### Disk Cleanup Scripts (`cleanup-disk.sh`)
-
-- `--force, -f`: Skip confirmation prompts (use with caution)
-- `--min-age=N`: Only clean files older than N days (default: 0, all files)
-
-**Examples:**
-```bash
-./mac/cleanup-disk.sh --dry-run
-./mac/cleanup-disk.sh --force --min-age=30
-./mac/cleanup-disk.sh --min-age=7  # Only files older than 7 days
-```
-
-### Memory Cleaning Scripts (`clean-memory.sh`)
-
-- `--aggressive`: Enable aggressive cleaning mode
-
-| Flag | Description | Example |
-|------|-------------|---------|
-| `--dry-run` | Preview changes without executing | `./mac/optimize-all.sh --dry-run` |
-| `--aggressive` | Enable aggressive cleaning (swap, browser cache) | `./mac/clean-memory.sh --aggressive` |
-| `--quick` | Non-interactive mode (skip confirmations) | `./mac/optimize-all.sh --quick` |
-| `--quiet` | Suppress progress output | `./linux/clean-memory.sh --quiet` |
-| `--verbose` | Show detailed logs | `./mac/optimize-cpu.sh --verbose` |
-| `--help` | Show help message | `./mac/clean-memory.sh --help` |
-| `--version` | Show version information | `./linux/optimize-cpu.sh --version` |
-
-## Configuration
-
-### Protected Processes
-
-Create `~/.os-optimize/protected-processes.txt` to customize protected processes:
-
-```
-# Protected Processes Whitelist
-# One process name per line
-kernel_task
-launchd
-WindowServer
-systemd
-```
-
-### Cache Preservation
-
-Use `--preserve-package-cache` to skip package manager cache cleanup:
-
-```bash
-./linux/clean-memory.sh --preserve-package-cache
-```
-
-## Troubleshooting
-
-### Permission Errors
-
-**macOS:**
-```bash
-# Grant Full Disk Access (System Preferences > Security & Privacy)
-# Or run with explicit sudo:
-sudo ./mac/optimize-all.sh
-```
-
-**Linux:**
-```bash
-# Ensure sudo access:
-sudo -v
-# Then run scripts normally
-```
-
-### Sudo Timeout
-
-If sudo times out during execution:
-```bash
-# Refresh sudo timestamp
-sudo -v
-# Run script again
-```
-
-### macOS System Integrity Protection (SIP)
-
-Some operations may be limited by SIP. To check SIP status:
-```bash
-csrutil status
-```
-
-### Linux SELinux/AppArmor
-
-If SELinux/AppArmor blocks operations:
-```bash
-# Check SELinux status
-getenforce
-
-# Temporarily set to permissive (for testing only)
-sudo setenforce 0
-```
-
-## Safety Guidelines
-
-- ✅ **Do**: Run during system idle time
-- ✅ **Do**: Use `--dry-run` first
-- ✅ **Do**: Keep backups of important data
-- ✅ **Do**: Test on non-production systems
-- ❌ **Don't**: Run during critical tasks
-- ❌ **Don't**: Run on production servers without testing
-- ❌ **Don't**: Disable SIP on macOS without understanding risks
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Code Style
-
-- Use `shellcheck` for linting
-- Follow existing code structure
-- Add comments for complex logic
-- Test on both macOS and Linux
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Credits
-
-- Inspired by system optimization needs
-- Built with bash scripting best practices
-- Tested on macOS 12-15 and multiple Linux distributions
-
----
-
-<a id="português"></a>
-# Português
+# Scripts de Otimização de Sistema
 
 ## Visão Geral do Projeto
 
 Um kit de ferramentas de otimização de sistema multiplataforma que ajuda os usuários a limpar e otimizar recursos do sistema quando o computador está lento. Este projeto fornece scripts de otimização dedicados para macOS e Linux.
+
+**Funcionalidades:**
+- **Otimização de Memória**: Limpa memória inativa, limpa caches e libera RAM
+- **Otimização de CPU**: Identifica e gerencia processos intensivos em CPU
+- **Gerenciamento de Disco**: Analisa uso de disco e limpa arquivos desnecessários
+- **Monitoramento do Sistema**: Dashboard de desempenho em tempo real
+- **Segurança em Primeiro Lugar**: Modo dry-run, preview antes da limpeza, suporte a rollback
 
 ## ⚠️ Aviso
 
@@ -485,6 +104,21 @@ Pronto! Nenhuma configuração manual necessária.
 ./linux/optimize-cpu.sh --process-threshold 30
 ```
 
+**Gerenciamento de Disco:**
+```bash
+# Analisar uso de disco
+./mac/analyze-disk.sh --dry-run
+./mac/analyze-disk.sh --items=20
+
+# Limpar espaço em disco
+./mac/cleanup-disk.sh --dry-run
+./mac/cleanup-disk.sh --force --min-age=30
+
+# Linux
+./linux/analyze-disk.sh --dry-run
+./linux/cleanup-disk.sh --dry-run --force
+```
+
 ## Descrição dos Scripts
 
 ### Scripts macOS
@@ -511,6 +145,21 @@ Pronto! Nenhuma configuração manual necessária.
 - Relatórios JSON abrangentes
 - Snapshots do sistema e pontos de restauração
 - **Tempo de execução**: ~60-120 segundos
+
+#### `analyze-disk.sh`
+- Analisa uso de disco por categoria (caches, logs, downloads, temp, etc.)
+- Mostra os N maiores arquivos e pastas
+- Identifica oportunidades de limpeza
+- Relatório categorizado de uso de disco
+- **Tempo de execução**: ~30-90 segundos
+
+#### `cleanup-disk.sh`
+- Limpa arquivos desnecessários para liberar espaço em disco
+- Preview antes da limpeza (mostra o que será deletado)
+- Prompts de confirmação interativos
+- Filtragem por idade (--min-age=N dias)
+- Exclusão segura com suporte a rollback
+- **Tempo de execução**: ~60-180 segundos
 
 ### Scripts Linux
 
@@ -539,7 +188,80 @@ Pronto! Nenhuma configuração manual necessária.
 - Notificações por email (opcional)
 - **Tempo de execução**: ~60-150 segundos
 
+#### `analyze-disk.sh`
+- Analisa uso de disco por categoria
+- Categorias específicas da plataforma (apt/yum/pacman/snap para Linux)
+- Mostra os N maiores itens (arquivos e pastas combinados)
+- Identifica oportunidades de limpeza acima do threshold
+- **Tempo de execução**: ~30-90 segundos
+
+#### `cleanup-disk.sh`
+- Limpa espaço em disco removendo arquivos desnecessários
+- Específico para Linux: caches de gerenciadores de pacotes, volumes Docker, kernels antigos
+- Mecanismo de preview antes da limpeza
+- Filtragem por idade para limpeza seletiva
+- Exclusão segura com tratamento adequado de permissões
+- **Tempo de execução**: ~60-180 segundos
+
+## Segurança na Limpeza de Disco
+
+A funcionalidade de limpeza de disco inclui vários mecanismos de segurança:
+
+- **Modo Preview**: Sempre mostra o que será limpo antes da exclusão
+- **Confirmações Interativas**: Solicita confirmação antes de deletar arquivos
+- **Suporte a Dry-Run**: Use `--dry-run` para visualizar sem fazer mudanças
+- **Filtragem por Idade**: Use `--min-age=N` para limpar apenas arquivos mais antigos que N dias
+- **Modo Force**: Use `--force` para pular confirmações (use com cautela)
+
+**O que é limpo:**
+- Caches do usuário (`~/Library/Caches` no macOS, `~/.cache` no Linux)
+- Logs do sistema (arquivos de log antigos)
+- Arquivos temporários (`/tmp`, `/var/tmp`)
+- Lixeira/reciclagem do navegador
+- Caches de gerenciadores de pacotes (apt, yum, pacman, snap no Linux)
+- Cache de node modules
+- Volumes Docker (se especificado)
+
+**O que NÃO é limpo:**
+- Documentos do usuário e arquivos pessoais
+- Dados de aplicativos (a menos que estejam em diretórios de cache)
+- Binários e bibliotecas do sistema
+- Arquivos de configuração
+
 ## Flags de Linha de Comando
+
+### Flags Comuns (Todos os Scripts)
+
+- `--dry-run, -n`: Visualizar mudanças sem executar
+- `--verbose, -v`: Mostrar saída detalhada
+- `--quiet, -q`: Suprimir saída não-errônea
+- `--help, -h`: Mostrar mensagem de ajuda
+
+### Scripts de Análise de Disco (`analyze-disk.sh`)
+
+- `--items=N`: Mostrar os N maiores itens (padrão: 20)
+
+**Exemplos:**
+```bash
+./mac/analyze-disk.sh --dry-run
+./mac/analyze-disk.sh --items=50 --verbose
+```
+
+### Scripts de Limpeza de Disco (`cleanup-disk.sh`)
+
+- `--force, -f`: Pular prompts de confirmação (use com cautela)
+- `--min-age=N`: Limpar apenas arquivos mais antigos que N dias (padrão: 0, todos os arquivos)
+
+**Exemplos:**
+```bash
+./mac/cleanup-disk.sh --dry-run
+./mac/cleanup-disk.sh --force --min-age=30
+./mac/cleanup-disk.sh --min-age=7  # Apenas arquivos mais antigos que 7 dias
+```
+
+### Scripts de Limpeza de Memória (`clean-memory.sh`)
+
+- `--aggressive`: Habilitar modo de limpeza agressiva
 
 | Flag | Descrição | Exemplo |
 |------|-----------|---------|

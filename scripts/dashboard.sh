@@ -179,18 +179,18 @@ display_dashboard() {
     local mem_free=$(echo "$mem_stats" | awk '{print $3}')
     local mem_percent=$((mem_used * 100 / mem_total))
 
-    echo -e "${COLOR_BOLD}Memória${COLOR_RESET}"
+    echo -e "${COLOR_BOLD}Memory${COLOR_RESET}"
     echo "----------------------------------------"
-    echo "Uso: ${mem_used} MB / ${mem_total} MB (${mem_percent}%)"
-    draw_bar "$mem_used" "$mem_total" 50 "Uso"
+    echo "Usage: ${mem_used} MB / ${mem_total} MB (${mem_percent}%)"
+    draw_bar "$mem_used" "$mem_total" 50 "Usage"
     echo ""
 
     # Top 20 Memory Processes
-    echo -e "${COLOR_BOLD}Top 20 Processos por Uso de Memória${COLOR_RESET}"
+    echo -e "${COLOR_BOLD}Top 20 Processes by Memory Usage${COLOR_RESET}"
     echo "----------------------------------------"
-    echo -e "${COLOR_YELLOW}Nota: Mostrando apenas os 20 primeiros processos${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}Note: Showing only the top 20 processes${COLOR_RESET}"
     echo ""
-    printf "%-40s %10s\n" "Processo" "Memória (MB)"
+    printf "%-40s %10s\n" "Process" "Memory (MB)"
     echo "----------------------------------------"
     get_top_memory_processes
     echo ""
@@ -199,23 +199,23 @@ display_dashboard() {
     local cpu_usage=$(get_cpu_usage)
     local cpu_total=100
 
-    echo -e "${COLOR_BOLD}Processador${COLOR_RESET}"
+    echo -e "${COLOR_BOLD}CPU${COLOR_RESET}"
     echo "----------------------------------------"
-    echo "Uso: ${cpu_usage}% / ${cpu_total}%"
-    draw_bar "$cpu_usage" "$cpu_total" 50 "Uso"
+    echo "Usage: ${cpu_usage}% / ${cpu_total}%"
+    draw_bar "$cpu_usage" "$cpu_total" 50 "Usage"
     echo ""
 
     # Top 20 CPU Processes
-    echo -e "${COLOR_BOLD}Top 20 Processos por Uso de Processador${COLOR_RESET}"
+    echo -e "${COLOR_BOLD}Top 20 Processes by CPU Usage${COLOR_RESET}"
     echo "----------------------------------------"
-    echo -e "${COLOR_YELLOW}Nota: Mostrando apenas os 20 primeiros processos${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}Note: Showing only the top 20 processes${COLOR_RESET}"
     echo ""
-    printf "%-40s %10s\n" "Processo" "CPU (%)"
+    printf "%-40s %10s\n" "Process" "CPU (%)"
     echo "----------------------------------------"
     get_top_cpu_processes
     echo ""
 
-    echo "Pressione 'q' para sair, 'r' para atualizar"
+    echo "Press 'q' to quit, 'r' to refresh"
 }
 
 main() {
