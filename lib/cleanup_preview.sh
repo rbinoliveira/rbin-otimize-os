@@ -40,9 +40,9 @@ FORCE_MODE="${FORCE_MODE:-false}"
 get_cleanup_categories() {
     if is_macos; then
         # Removed 'downloads' - too dangerous, may contain important user files
-        echo "caches logs temp browser_trash xcode node_modules docker volumes build_artifacts orphaned_apps"
+        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps"
     elif is_linux; then
-        echo "caches logs temp browser_trash apt yum pacman node_modules docker volumes build_artifacts snap orphaned_apps"
+        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps"
     else
         echo "caches logs temp"
     fi
@@ -357,6 +357,196 @@ scan_cleanup_category() {
 
     # Handle special categories that don't have a single path
     case "$category" in
+        react_native)
+            # React Native has multiple cache locations
+            local total_size=0
+            local file_count=0
+            local cache_paths=(
+                "${HOME}/.rncache"
+                "${HOME}/Library/Caches/Metro"
+                "${HOME}/Library/Caches/com.facebook.ReactNativeBuild"
+                "/tmp/metro-*"
+                "/tmp/haste-map-*"
+                "/tmp/react-*"
+            )
+
+            for cache_path in "${cache_paths[@]}"; do
+                # Handle wildcards
+                if [[ "$cache_path" == *"*"* ]]; then
+                    while IFS= read -r dir; do
+                        [[ -z "$dir" ]] || [[ ! -e "$dir" ]] && continue
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                                local estimated_files=$((dir_size * 10))
+                                file_count=$((file_count + estimated_files))
+                            fi
+                        fi
+                    done < <(find "$(dirname "$cache_path")" -maxdepth 1 -name "$(basename "$cache_path")" 2>/dev/null)
+                else
+                    if [[ -e "$cache_path" ]]; then
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                                local estimated_files=$((dir_size * 10))
+                                file_count=$((file_count + estimated_files))
+                            fi
+                        fi
+                    fi
+                fi
+            done
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|React Native caches|${file_count}|${total_size}"
+            return 0
+            ;;
+        android_studio)
+            # Android Studio caches
+            local total_size=0
+            local file_count=0
+            local cache_paths=(
+                "${HOME}/.android/cache"
+                "${HOME}/.android/build-cache"
+                "${HOME}/Library/Caches/AndroidStudio*"
+            )
+
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ "$cache_path" == *"*"* ]]; then
+                    while IFS= read -r dir; do
+                        [[ -z "$dir" ]] || [[ ! -e "$dir" ]] && continue
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                                local estimated_files=$((dir_size * 20))
+                                file_count=$((file_count + estimated_files))
+                            fi
+                        fi
+                    done < <(find "$(dirname "$cache_path")" -maxdepth 1 -name "$(basename "$cache_path")" -type d 2>/dev/null)
+                else
+                    if [[ -e "$cache_path" ]]; then
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                                local estimated_files=$((dir_size * 20))
+                                file_count=$((file_count + estimated_files))
+                            fi
+                        fi
+                    fi
+                fi
+            done
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|Android Studio caches|${file_count}|${total_size}"
+            return 0
+            ;;
+        gradle)
+            # Gradle caches
+            local cache_path="${HOME}/.gradle/caches"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((total_size + dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        ios_simulators)
+            # iOS Simulator caches (macOS only)
+            if ! is_macos; then
+                return 0
+            fi
+
+            local total_size=0
+            local file_count=0
+            local cache_paths=(
+                "${HOME}/Library/Developer/CoreSimulator/Caches"
+                "${HOME}/Library/Developer/CoreSimulator/Devices/*/data/Library/Caches"
+            )
+
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ "$cache_path" == *"*"* ]]; then
+                    while IFS= read -r dir; do
+                        [[ -z "$dir" ]] || [[ ! -e "$dir" ]] && continue
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                                local estimated_files=$((dir_size * 10))
+                                file_count=$((file_count + estimated_files))
+                            fi
+                        fi
+                    done < <(find "$(dirname "$(dirname "$cache_path")")" -path "$cache_path" -type d 2>/dev/null)
+                else
+                    if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                        local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                        if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                            total_size=$((total_size + dir_size * 1024))
+                            local estimated_files=$((dir_size * 10))
+                            file_count=$((file_count + estimated_files))
+                        fi
+                    fi
+                fi
+            done
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|iOS Simulator caches|${file_count}|${total_size}"
+            return 0
+            ;;
+        xcode_archives)
+            # Xcode Archives (macOS only)
+            if ! is_macos; then
+                return 0
+            fi
+
+            local path="${HOME}/Library/Developer/Xcode/Archives"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((total_size + dir_size * 1024))
+                    file_count=$((dir_size * 5))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        xcode_device_support)
+            # Xcode Device Support (macOS only)
+            if ! is_macos; then
+                return 0
+            fi
+
+            local path="${HOME}/Library/Developer/Xcode/iOS DeviceSupport"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((total_size + dir_size * 1024))
+                    file_count=$((dir_size * 5))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
         node_modules)
             # Use optimized scanning - calculate size with du instead of listing all files
             local total_size=0
@@ -786,6 +976,431 @@ delete_category_files() {
 
     # Handle special categories
     case "$category" in
+        react_native)
+            log_info "Cleaning React Native caches..."
+
+            local cache_paths=(
+                "${HOME}/.rncache"
+                "${HOME}/Library/Caches/Metro"
+                "${HOME}/Library/Caches/com.facebook.ReactNativeBuild"
+                "/tmp/metro-*"
+                "/tmp/haste-map-*"
+                "/tmp/react-*"
+            )
+
+            # Calculate total size for confirmation
+            local total_size=0
+            local dirs_to_delete=()
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ "$cache_path" == *"*"* ]]; then
+                    while IFS= read -r dir; do
+                        [[ -z "$dir" ]] || [[ ! -e "$dir" ]] && continue
+                        dirs_to_delete+=("$dir")
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                            fi
+                        fi
+                    done < <(find "$(dirname "$cache_path")" -maxdepth 1 -name "$(basename "$cache_path")" 2>/dev/null)
+                else
+                    if [[ -e "$cache_path" ]]; then
+                        dirs_to_delete+=("$cache_path")
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                            fi
+                        fi
+                    fi
+                fi
+            done
+
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then
+                log_info "No React Native caches found"
+                return 0
+            fi
+
+            # Format size for display
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            print_warning "About to delete ${#dirs_to_delete[@]} React Native cache locations"
+            print_info "Total size: $size_formatted"
+            print_warning ""
+            print_warning "⚠ WARNING: This will delete React Native caches:"
+            print_warning "  - Metro bundler cache"
+            print_warning "  - React Native build cache"
+            print_warning "  - Temporary files"
+            print_warning "  - These caches will be regenerated on next build"
+            print_warning ""
+
+            if ! confirm "Delete React Native caches? (y/N)" "N"; then
+                log_info "User cancelled React Native cache deletion"
+                return 1
+            fi
+
+            # Delete cache directories
+            local deleted=0
+            local failed=0
+            for dir in "${dirs_to_delete[@]}"; do
+                if [[ -e "$dir" ]]; then
+                    if rm -rf "$dir" 2>/dev/null; then
+                        deleted=$((deleted + 1))
+                        log_debug "Deleted: $dir"
+                    else
+                        failed=$((failed + 1))
+                        log_warn "Failed to delete: $dir"
+                    fi
+                fi
+            done
+
+            log_success "Deleted $deleted React Native cache locations"
+            [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
+            return 0
+            ;;
+        android_studio)
+            log_info "Cleaning Android Studio caches..."
+
+            local cache_paths=(
+                "${HOME}/.android/cache"
+                "${HOME}/.android/build-cache"
+            )
+
+            # Add macOS-specific paths
+            if is_macos; then
+                cache_paths+=("${HOME}/Library/Caches/AndroidStudio*")
+            fi
+
+            # Calculate total size
+            local total_size=0
+            local dirs_to_delete=()
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ "$cache_path" == *"*"* ]]; then
+                    while IFS= read -r dir; do
+                        [[ -z "$dir" ]] || [[ ! -e "$dir" ]] && continue
+                        dirs_to_delete+=("$dir")
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                            fi
+                        fi
+                    done < <(find "$(dirname "$cache_path")" -maxdepth 1 -name "$(basename "$cache_path")" -type d 2>/dev/null)
+                else
+                    if [[ -e "$cache_path" ]]; then
+                        dirs_to_delete+=("$cache_path")
+                        if command -v du >/dev/null 2>&1; then
+                            local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                            if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                                total_size=$((total_size + dir_size * 1024))
+                            fi
+                        fi
+                    fi
+                fi
+            done
+
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then
+                log_info "No Android Studio caches found"
+                return 0
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            print_warning "About to delete ${#dirs_to_delete[@]} Android Studio cache locations"
+            print_info "Total size: $size_formatted"
+            print_warning ""
+            print_warning "⚠ WARNING: This will delete Android Studio caches:"
+            print_warning "  - Build caches"
+            print_warning "  - IDE caches"
+            print_warning "  - These will be regenerated automatically"
+            print_warning ""
+
+            if ! confirm "Delete Android Studio caches? (y/N)" "N"; then
+                log_info "User cancelled Android Studio cache deletion"
+                return 1
+            fi
+
+            # Delete cache directories
+            local deleted=0
+            local failed=0
+            for dir in "${dirs_to_delete[@]}"; do
+                if [[ -e "$dir" ]]; then
+                    if rm -rf "$dir" 2>/dev/null; then
+                        deleted=$((deleted + 1))
+                        log_debug "Deleted: $dir"
+                    else
+                        failed=$((failed + 1))
+                        log_warn "Failed to delete: $dir"
+                    fi
+                fi
+            done
+
+            log_success "Deleted $deleted Android Studio cache locations"
+            [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
+            return 0
+            ;;
+        gradle)
+            log_info "Cleaning Gradle caches..."
+
+            local cache_path="${HOME}/.gradle/caches"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Gradle caches found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((total_size + dir_size * 1024))
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            print_warning "About to delete Gradle caches"
+            print_info "Location: $cache_path"
+            print_info "Total size: $size_formatted"
+            print_warning ""
+            print_warning "⚠ WARNING: This will delete Gradle caches:"
+            print_warning "  - Downloaded dependencies will be removed"
+            print_warning "  - They will be re-downloaded on next build"
+            print_warning ""
+
+            if ! confirm "Delete Gradle caches? (y/N)" "N"; then
+                log_info "User cancelled Gradle cache deletion"
+                return 1
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Gradle caches"
+            else
+                log_warn "Failed to delete Gradle caches"
+                return 1
+            fi
+
+            return 0
+            ;;
+        ios_simulators)
+            if ! is_macos; then
+                log_warn "iOS Simulator cleanup is only available on macOS"
+                return 1
+            fi
+
+            log_info "Cleaning iOS Simulator caches..."
+
+            local cache_paths=(
+                "${HOME}/Library/Developer/CoreSimulator/Caches"
+            )
+
+            # Calculate size
+            local total_size=0
+            local dirs_to_delete=()
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ -e "$cache_path" ]]; then
+                    dirs_to_delete+=("$cache_path")
+                    if command -v du >/dev/null 2>&1; then
+                        local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}')
+                        if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                            total_size=$((total_size + dir_size * 1024))
+                        fi
+                    fi
+                fi
+            done
+
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then
+                log_info "No iOS Simulator caches found"
+                return 0
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            print_warning "About to delete iOS Simulator caches"
+            print_info "Total size: $size_formatted"
+            print_warning ""
+            print_warning "⚠ WARNING: This will delete iOS Simulator caches:"
+            print_warning "  - Simulator app data may be cleared"
+            print_warning "  - Caches will be regenerated automatically"
+            print_warning ""
+
+            if ! confirm "Delete iOS Simulator caches? (y/N)" "N"; then
+                log_info "User cancelled iOS Simulator cache deletion"
+                return 1
+            fi
+
+            # Delete cache directories
+            local deleted=0
+            local failed=0
+            for dir in "${dirs_to_delete[@]}"; do
+                if [[ -e "$dir" ]]; then
+                    if rm -rf "$dir" 2>/dev/null; then
+                        deleted=$((deleted + 1))
+                        log_debug "Deleted: $dir"
+                    else
+                        failed=$((failed + 1))
+                        log_warn "Failed to delete: $dir"
+                    fi
+                fi
+            done
+
+            log_success "Deleted $deleted iOS Simulator cache locations"
+            [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
+            return 0
+            ;;
+        xcode_archives)
+            if ! is_macos; then
+                log_warn "Xcode Archives cleanup is only available on macOS"
+                return 1
+            fi
+
+            log_info "Cleaning Xcode Archives..."
+
+            local path="${HOME}/Library/Developer/Xcode/Archives"
+
+            if [[ ! -e "$path" ]]; then
+                log_info "No Xcode Archives found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((total_size + dir_size * 1024))
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            print_warning "About to delete Xcode Archives"
+            print_info "Location: $path"
+            print_info "Total size: $size_formatted"
+            print_warning ""
+            print_warning "⚠ CRITICAL WARNING: This will delete Xcode Archives:"
+            print_warning "  - App archives for App Store submissions"
+            print_warning "  - Debug symbols for crash reports"
+            print_warning "  - Make sure you have backups or don't need these archives"
+            print_warning ""
+
+            if ! confirm "Delete Xcode Archives? (y/N)" "N"; then
+                log_info "User cancelled Xcode Archives deletion"
+                return 1
+            fi
+
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Xcode Archives"
+            else
+                log_warn "Failed to delete Xcode Archives"
+                return 1
+            fi
+
+            return 0
+            ;;
+        xcode_device_support)
+            if ! is_macos; then
+                log_warn "Xcode Device Support cleanup is only available on macOS"
+                return 1
+            fi
+
+            log_info "Cleaning Xcode Device Support..."
+
+            local path="${HOME}/Library/Developer/Xcode/iOS DeviceSupport"
+
+            if [[ ! -e "$path" ]]; then
+                log_info "No Xcode Device Support found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((total_size + dir_size * 1024))
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            print_warning "About to delete Xcode Device Support"
+            print_info "Location: $path"
+            print_info "Total size: $size_formatted"
+            print_warning ""
+            print_warning "⚠ WARNING: This will delete iOS Device Support files:"
+            print_warning "  - Debug symbols for physical iOS devices"
+            print_warning "  - These will be re-downloaded when connecting devices again"
+            print_warning ""
+
+            if ! confirm "Delete Xcode Device Support? (y/N)" "N"; then
+                log_info "User cancelled Xcode Device Support deletion"
+                return 1
+            fi
+
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Xcode Device Support"
+            else
+                log_warn "Failed to delete Xcode Device Support"
+                return 1
+            fi
+
+            return 0
+            ;;
         node_modules)
             # Find all node_modules directories (not just files)
             local node_modules_dirs=()

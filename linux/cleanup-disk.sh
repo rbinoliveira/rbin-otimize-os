@@ -150,6 +150,9 @@ Description:
     - Browser trash
     - Downloads (if --min-age specified)
     - Package manager caches (apt, yum, dnf, pacman)
+    - Android Studio caches
+    - Gradle caches
+    - React Native caches (Metro, Watchman, Haste)
     - Node modules cache
     - Docker containers/images/volumes
     - Snap package cache
@@ -173,6 +176,147 @@ clean_category() {
         print_warning "Failed to clean category: $category"
         return 1
     fi
+}
+
+# Display category menu and get user selection
+select_categories_to_clean() {
+    local categories=("$@")
+    local -a selected_indices=()
+
+    # Display header
+    print_info "=============================================="
+    print_info "Select categories to clean:"
+    print_info "=============================================="
+    print_info ""
+
+    # Display numbered list
+    local idx=1
+    for category in "${categories[@]}"; do
+        # Get category path for display
+        local category_path=""
+        if command -v get_category_path >/dev/null 2>&1; then
+            category_path=$(get_category_path "$category")
+        fi
+
+        # Special handling for categories without single path
+        if [[ -z "$category_path" ]]; then
+            case "$category" in
+                node_modules)
+                    category_path="Multiple project directories"
+                    ;;
+                volumes)
+                    category_path="Docker volumes (unused only)"
+                    ;;
+                build_artifacts)
+                    category_path="Multiple project directories"
+                    ;;
+                *)
+                    category_path="Various locations"
+                    ;;
+            esac
+        fi
+
+        # Format category name for display
+        local category_display="$category"
+        case "$category" in
+            browser_trash)
+                category_display="Browser Trash"
+                ;;
+            node_modules)
+                category_display="node_modules"
+                ;;
+            build_artifacts)
+                category_display="Build Artifacts"
+                ;;
+            *)
+                category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
+                ;;
+        esac
+
+        printf "  %2d) %-35s (%s)\n" "$idx" "$category_display" "$category_path"
+        idx=$((idx + 1))
+    done
+
+    print_info ""
+    print_info "Enter numbers separated by comma (e.g., 1,2,3)"
+    print_info "Or use range (e.g., 1-5)"
+    print_info "Or type 'all' to select everything"
+    print_info "Or type '0' to cancel"
+    print_info ""
+
+    # Read user input
+    local input
+    read -r -p "Your choice: " input
+
+    # Handle special cases
+    if [[ "$input" == "0" ]] || [[ -z "$input" ]]; then
+        return 1
+    fi
+
+    if [[ "$input" == "all" ]] || [[ "$input" == "ALL" ]]; then
+        for ((i=1; i<=${#categories[@]}; i++)); do
+            selected_indices+=($i)
+        done
+    else
+        # Parse comma-separated and range values
+        IFS=',' read -ra selections <<< "$input"
+        for selection in "${selections[@]}"; do
+            # Trim whitespace
+            selection=$(echo "$selection" | xargs)
+
+            # Check if it's a range (e.g., 1-5)
+            if [[ "$selection" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+                local start="${BASH_REMATCH[1]}"
+                local end="${BASH_REMATCH[2]}"
+                for ((i=start; i<=end; i++)); do
+                    if [[ $i -ge 1 ]] && [[ $i -le ${#categories[@]} ]]; then
+                        selected_indices+=($i)
+                    fi
+                done
+            # Check if it's a single number
+            elif [[ "$selection" =~ ^[0-9]+$ ]]; then
+                if [[ $selection -ge 1 ]] && [[ $selection -le ${#categories[@]} ]]; then
+                    selected_indices+=($selection)
+                fi
+            fi
+        done
+    fi
+
+    # Remove duplicates and sort
+    if [[ ${#selected_indices[@]} -eq 0 ]]; then
+        print_warning "No categories selected"
+        return 1
+    fi
+
+    selected_indices=($(printf '%s\n' "${selected_indices[@]}" | sort -nu))
+
+    # Display selected categories for confirmation
+    print_info ""
+    print_info "Selected categories:"
+    for idx in "${selected_indices[@]}"; do
+        local category="${categories[$((idx-1))]}"
+        local category_display="$category"
+        case "$category" in
+            browser_trash)
+                category_display="Browser Trash"
+                ;;
+            node_modules)
+                category_display="node_modules"
+                ;;
+            build_artifacts)
+                category_display="Build Artifacts"
+                ;;
+            *)
+                category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
+                ;;
+        esac
+        print_info "  - $category_display"
+    done
+    print_info ""
+
+    # Export selected indices for main function
+    echo "${selected_indices[@]}"
+    return 0
 }
 
 # Main execution
@@ -208,64 +352,42 @@ main() {
         print_info ""
     fi
 
-    # Clean each category with individual confirmation
+    # Get all categories
     local categories=$(get_cleanup_categories)
+    local -a category_array=($categories)
     local cleaned=0
     local failed=0
 
+    # Interactive category selection (unless force or dry-run)
+    local -a selected_indices=()
+    if ! is_dry_run && [[ "$FORCE" != "true" ]]; then
+        local selection_output
+        if selection_output=$(select_categories_to_clean "${category_array[@]}"); then
+            selected_indices=($selection_output)
+        else
+            print_warning "Cleanup cancelled"
+            exit 0
+        fi
+
+        # Final confirmation
+        if ! confirm "Confirm cleanup of selected categories? (y/N)" "N"; then
+            print_warning "Cleanup cancelled"
+            exit 0
+        fi
+    else
+        # In force or dry-run mode, clean all categories
+        for ((i=1; i<=${#category_array[@]}; i++)); do
+            selected_indices+=($i)
+        done
+    fi
+
+    print_info ""
     print_info "Starting cleanup..."
     print_info ""
 
-    for category in $categories; do
-        # Ask for confirmation for each category (unless force or dry-run)
-        if ! is_dry_run && [[ "$FORCE" != "true" ]]; then
-            # Get category path for display
-            local category_path=""
-            if command -v get_category_path >/dev/null 2>&1; then
-                category_path=$(get_category_path "$category")
-            fi
-
-            # Special handling for categories without single path
-            if [[ -z "$category_path" ]]; then
-                case "$category" in
-                    node_modules)
-                        category_path="Multiple project directories"
-                        ;;
-                    volumes)
-                        category_path="Docker volumes (unused only)"
-                        ;;
-                    build_artifacts)
-                        category_path="Multiple project directories"
-                        ;;
-                    *)
-                        category_path="Various locations"
-                        ;;
-                esac
-            fi
-
-            # Format category name for display
-            local category_display="$category"
-            case "$category" in
-                browser_trash)
-                    category_display="Browser Trash"
-                    ;;
-                node_modules)
-                    category_display="node_modules"
-                    ;;
-                build_artifacts)
-                    category_display="Build Artifacts"
-                    ;;
-                *)
-                    category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
-                    ;;
-            esac
-
-            if ! confirm "Clean category: $category_display ($category_path)? (y/N)" "N"; then
-                print_info "Skipping category: $category"
-                continue
-            fi
-        fi
-
+    # Clean selected categories
+    for idx in "${selected_indices[@]}"; do
+        local category="${category_array[$((idx-1))]}"
         if clean_category "$category"; then
             cleaned=$((cleaned + 1))
         else

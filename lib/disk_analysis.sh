@@ -65,9 +65,9 @@ format_bytes() {
 get_disk_categories() {
     if is_macos; then
         # Removed 'downloads' - too dangerous, may contain important user files
-        echo "caches logs temp browser_trash xcode node_modules docker volumes build_artifacts orphaned_apps"
+        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps"
     elif is_linux; then
-        echo "caches logs temp browser_trash apt yum pacman node_modules docker volumes build_artifacts snap orphaned_apps"
+        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps"
     else
         echo "caches logs temp"
     fi
@@ -152,6 +152,37 @@ get_category_path() {
             else
                 echo ""
             fi
+            ;;
+        xcode_archives)
+            if is_macos; then
+                echo "${HOME}/Library/Developer/Xcode/Archives"
+            else
+                echo ""
+            fi
+            ;;
+        xcode_device_support)
+            if is_macos; then
+                echo "${HOME}/Library/Developer/Xcode/iOS DeviceSupport"
+            else
+                echo ""
+            fi
+            ;;
+        ios_simulators)
+            if is_macos; then
+                echo "${HOME}/Library/Developer/CoreSimulator/Caches"
+            else
+                echo ""
+            fi
+            ;;
+        android_studio)
+            echo "${HOME}/.android"
+            ;;
+        gradle)
+            echo "${HOME}/.gradle/caches"
+            ;;
+        react_native)
+            # React Native has multiple cache locations
+            echo ""
             ;;
         node_modules)
             echo "${HOME}/.node_modules"
