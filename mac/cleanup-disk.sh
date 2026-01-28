@@ -151,7 +151,7 @@ Description:
     - Caches (user and system)
     - Logs
     - Temporary files
-    - Browser trash
+    - System trash (Trash/Lixeira)
     - Downloads (if --min-age specified)
     - Xcode (derived data, archives, device support, simulator caches)
     - Android Studio caches
@@ -168,6 +168,10 @@ User Scope:
        - All user home directories
        - All user caches and logs
        - All user application data
+
+    ⚠ LIMITATION: Due to macOS privacy protections (TCC), the system trash
+       can only be emptied for the current user, even with sudo access.
+       Other categories (caches, logs, etc.) work for all users.
 
 Warning: Some operations are irreversible. Use --dry-run first.
 
@@ -231,7 +235,7 @@ select_categories_to_clean() {
         local category_display="$category"
         case "$category" in
             browser_trash)
-                category_display="Browser Trash"
+                category_display="System Trash (Lixeira)"
                 ;;
             node_modules)
                 category_display="node_modules"
@@ -306,7 +310,7 @@ select_categories_to_clean() {
         local category_display="$category"
         case "$category" in
             browser_trash)
-                category_display="Browser Trash"
+                category_display="System Trash (Lixeira)"
                 ;;
             node_modules)
                 category_display="node_modules"

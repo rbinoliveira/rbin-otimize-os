@@ -978,8 +978,8 @@ delete_category_files() {
     local category="$1"
     local min_age_days="${2:-0}"
 
-    # Safety check: never delete in dry-run or without confirmation
-    if is_dry_run; then
+    # Safety check for dry-run (except for trash which needs special handling)
+    if is_dry_run && [[ "$category" != "browser_trash" ]]; then
         log_info "[DRY-RUN] Would delete files from category: $category"
         return 0
     fi
@@ -1745,29 +1745,68 @@ delete_category_files() {
         return 1
     fi
 
-    if [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
+    # Special handling for browser_trash - use macOS native command for reliability
+    if [[ "$category" == "browser_trash" ]]; then
+        # Skip path existence check for trash - macOS protections may block access
+        log_debug "Using AppleScript for trash access (path: $path)"
+    elif [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
         log_warn "Category $category: path not found ($path)"
         return 1
     fi
 
-    # Special handling for browser_trash - use macOS native command for reliability
     if [[ "$category" == "browser_trash" ]]; then
         if is_macos; then
-            # Count items in trash first
+            # Determine which user's trash to access
+            local target_user=""
+            if [[ -n "$HOME_OVERRIDE" ]] && [[ "$HOME_OVERRIDE" != "$HOME" ]]; then
+                # Multi-user mode: extract username from HOME_OVERRIDE
+                target_user=$(basename "$HOME_OVERRIDE")
+                log_debug "Accessing trash for user: $target_user"
+            fi
+
+            # Count items in trash using AppleScript (required for macOS privacy protections)
+            local trash_count=0
+            if command -v osascript >/dev/null 2>&1; then
+                if [[ -n "$target_user" ]] && [[ "$target_user" != "$USER" ]]; then
+                    # For other users, try to count files directly (may fail due to permissions)
+                    # In multi-user mode, we can't use AppleScript for other users' trash
+                    trash_count=$(sudo -u "$target_user" find "$path" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | xargs)
+                else
+                    # Current user: use AppleScript
+                    trash_count=$(osascript -e 'tell application "Finder" to return (count of items of trash)' 2>/dev/null || echo "0")
+                fi
+            fi
+
+            if [[ "$trash_count" -eq 0 ]]; then
+                if [[ -n "$target_user" ]] && [[ "$target_user" != "$USER" ]]; then
+                    log_info "Cannot access trash for user '$target_user' (macOS privacy protection)"
+                else
+                    log_info "Trash is already empty"
+                fi
+                return 0
+            fi
+
+            # Get trash items list for size calculation (fallback to approximation if inaccessible)
             local trash_items=()
             while IFS= read -r item; do
                 [[ -n "$item" ]] && trash_items+=("$item")
             done < <(find "$path" -mindepth 1 2>/dev/null)
 
-            if [[ ${#trash_items[@]} -eq 0 ]]; then
-                log_info "Trash is already empty"
-                return 0
+            # If find failed due to permissions, use trash_count as estimate
+            if [[ ${#trash_items[@]} -eq 0 ]] && [[ "$trash_count" -gt 0 ]]; then
+                log_debug "Using AppleScript count: $trash_count items (direct access denied)"
+                # Create placeholder array to match count
+                for ((i=1; i<=trash_count; i++)); do
+                    trash_items+=("item_$i")
+                done
             fi
 
-            # Calculate total size
+            # Calculate total size (only if we have direct access to files)
             local total_size=0
+            local has_size_info=false
             for item in "${trash_items[@]}"; do
                 if [[ -e "$item" ]]; then
+                    has_size_info=true
                     if command -v du >/dev/null 2>&1; then
                         local item_size=$(du -sk "$item" 2>/dev/null | awk '{print $1}')
                         if [[ -n "$item_size" ]] && [[ "$item_size" =~ ^[0-9]+$ ]]; then
@@ -1778,53 +1817,86 @@ delete_category_files() {
             done
 
             # Format size
-            local size_mb=$((total_size / 1024 / 1024))
             local size_formatted=""
-            if [[ $size_mb -ge 1024 ]]; then
-                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
-                size_formatted="${size_gb} GB"
+            if [[ "$has_size_info" == "true" ]] && [[ $total_size -gt 0 ]]; then
+                local size_mb=$((total_size / 1024 / 1024))
+                if [[ $size_mb -ge 1024 ]]; then
+                    local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                    size_formatted="${size_gb} GB"
+                else
+                    local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                    size_formatted="${size_mb_float} MB"
+                fi
             else
-                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
-                size_formatted="${size_mb_float} MB"
+                size_formatted="unknown size"
             fi
 
+            # Show information about trash
             if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
-                print_warning "About to empty trash: ${#trash_items[@]} items"
-                print_info "Total size: $size_formatted"
+                print_warning "About to empty trash: $trash_count items"
+                if [[ "$has_size_info" == "true" ]]; then
+                    print_info "Total size: $size_formatted"
+                fi
 
-                if ! confirm "Empty trash? (y/N)" "N"; then
+                if ! is_dry_run && ! confirm "Empty trash? (y/N)" "N"; then
                     log_info "User cancelled trash cleanup"
                     return 1
                 fi
             else
-                log_info "Emptying trash: ${#trash_items[@]} items ($size_formatted)"
+                log_info "Emptying trash: $trash_count items ($size_formatted)"
+            fi
+
+            # In dry-run mode, just report what would be done
+            if is_dry_run; then
+                log_info "[DRY-RUN] Would empty trash: $trash_count items ($size_formatted)"
+                print_info "[DRY-RUN] Would empty $trash_count items from trash"
+                return 0
             fi
 
             # Use macOS native command to empty trash (most reliable method)
-            if command -v osascript >/dev/null 2>&1; then
-                log_info "Emptying trash using macOS Finder..."
-                if osascript -e 'tell application "Finder" to empty trash' 2>/dev/null; then
-                    log_success "Trash emptied successfully"
-                    return 0
-                else
-                    log_warn "Failed to empty trash using Finder, trying manual deletion..."
+            if [[ -z "$target_user" ]] || [[ "$target_user" == "$USER" ]]; then
+                # Current user: use AppleScript
+                if command -v osascript >/dev/null 2>&1; then
+                    log_info "Emptying trash using macOS Finder..."
+                    if osascript -e 'tell application "Finder" to empty trash' 2>/dev/null; then
+                        log_success "Trash emptied successfully"
+                        return 0
+                    else
+                        log_warn "Failed to empty trash using Finder, trying manual deletion..."
+                    fi
                 fi
+            else
+                # Other user: use manual deletion (AppleScript won't work for other users)
+                log_info "Emptying trash for user $target_user using manual deletion..."
             fi
 
             # Fallback: manual deletion if osascript fails
             local deleted=0
             local failed=0
-            for item in "${trash_items[@]}"; do
-                if [[ -e "$item" ]]; then
-                    # Use rm -rf with force to handle locked files
-                    if rm -rf "$item" 2>/dev/null || sudo rm -rf "$item" 2>/dev/null; then
-                        deleted=$((deleted + 1))
-                    else
-                        failed=$((failed + 1))
-                        log_warn "Failed to delete: $item (may be locked)"
-                    fi
+
+            # For multi-user mode, delete entire trash directory content
+            if [[ -n "$target_user" ]] && [[ "$target_user" != "$USER" ]] && [[ -d "$path" ]]; then
+                if sudo rm -rf "$path"/* 2>/dev/null; then
+                    deleted=$trash_count
+                    log_success "Deleted $deleted items from trash (user: $target_user)"
+                else
+                    log_warn "Failed to delete trash items for user: $target_user"
+                    return 1
                 fi
-            done
+            else
+                # Current user: delete items individually
+                for item in "${trash_items[@]}"; do
+                    if [[ -e "$item" ]]; then
+                        # Use rm -rf with force to handle locked files
+                        if rm -rf "$item" 2>/dev/null || sudo rm -rf "$item" 2>/dev/null; then
+                            deleted=$((deleted + 1))
+                        else
+                            failed=$((failed + 1))
+                            log_warn "Failed to delete: $item (may be locked)"
+                        fi
+                    fi
+                done
+            fi
 
             log_success "Deleted $deleted items from trash"
             [[ $failed -gt 0 ]] && log_warn "$failed items could not be deleted (may require manual deletion)"
