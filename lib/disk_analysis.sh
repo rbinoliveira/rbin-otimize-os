@@ -16,6 +16,12 @@ readonly DISK_ANALYSIS_VERSION="1.0.0"
 HIGHLIGHT_THRESHOLD="${HIGHLIGHT_THRESHOLD:-100}"
 ANALYSIS_TIMEOUT="${ANALYSIS_TIMEOUT:-300}"
 
+# Helper function to get the correct HOME directory
+# Uses HOME_OVERRIDE if set (for multi-user cleanup), otherwise uses $HOME
+get_user_home() {
+    echo "${HOME_OVERRIDE:-$HOME}"
+}
+
 # ============ Library Dependencies ============
 if [[ -z "${COMMON_SH_LOADED:-}" ]]; then
     # Try to source from same directory as this script
@@ -116,14 +122,14 @@ get_category_path() {
     case "$category" in
         caches)
             if is_macos; then
-                echo "${HOME}/Library/Caches"
+                echo "$(get_user_home)/Library/Caches"
             else
-                echo "${HOME}/.cache"
+                echo "$(get_user_home)/.cache"
             fi
             ;;
         logs)
             if is_macos; then
-                echo "${HOME}/Library/Logs"
+                echo "$(get_user_home)/Library/Logs"
             else
                 echo "/var/log"
             fi
@@ -141,55 +147,55 @@ get_category_path() {
             ;;
         browser_trash)
             if is_macos; then
-                echo "${HOME}/.Trash"
+                echo "$(get_user_home)/.Trash"
             else
-                echo "${HOME}/.local/share/Trash"
+                echo "$(get_user_home)/.local/share/Trash"
             fi
             ;;
         xcode)
             if is_macos; then
-                echo "${HOME}/Library/Developer/Xcode/DerivedData"
+                echo "$(get_user_home)/Library/Developer/Xcode/DerivedData"
             else
                 echo ""
             fi
             ;;
         xcode_archives)
             if is_macos; then
-                echo "${HOME}/Library/Developer/Xcode/Archives"
+                echo "$(get_user_home)/Library/Developer/Xcode/Archives"
             else
                 echo ""
             fi
             ;;
         xcode_device_support)
             if is_macos; then
-                echo "${HOME}/Library/Developer/Xcode/iOS DeviceSupport"
+                echo "$(get_user_home)/Library/Developer/Xcode/iOS DeviceSupport"
             else
                 echo ""
             fi
             ;;
         ios_simulators)
             if is_macos; then
-                echo "${HOME}/Library/Developer/CoreSimulator/Caches"
+                echo "$(get_user_home)/Library/Developer/CoreSimulator/Caches"
             else
                 echo ""
             fi
             ;;
         android_studio)
-            echo "${HOME}/.android"
+            echo "$(get_user_home)/.android"
             ;;
         gradle)
-            echo "${HOME}/.gradle/caches"
+            echo "$(get_user_home)/.gradle/caches"
             ;;
         react_native)
             # React Native has multiple cache locations
             echo ""
             ;;
         node_modules)
-            echo "${HOME}/.node_modules"
+            echo "$(get_user_home)/.node_modules"
             ;;
         docker)
             if is_macos; then
-                echo "${HOME}/Library/Containers/com.docker.docker/Data/vms"
+                echo "$(get_user_home)/Library/Containers/com.docker.docker/Data/vms"
             else
                 echo "/var/lib/docker"
             fi
@@ -202,9 +208,9 @@ get_category_path() {
             ;;
         orphaned_apps)
             if is_macos; then
-                echo "${HOME}/Library/Application Support"
+                echo "$(get_user_home)/Library/Application Support"
             else
-                echo "${HOME}/.config"
+                echo "$(get_user_home)/.config"
             fi
             ;;
         apt)

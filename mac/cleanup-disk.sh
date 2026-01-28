@@ -92,6 +92,10 @@ parse_arguments() {
                 FORCE_MODE=true
                 shift
                 ;;
+            --all-users)
+                ALL_USERS=true
+                shift
+                ;;
             --min-age)
                 MIN_AGE_DAYS="$2"
                 shift 2
@@ -117,6 +121,14 @@ parse_arguments() {
         print_error "Invalid min-age: $MIN_AGE_DAYS (must be a non-negative integer)"
         exit 1
     fi
+
+    # Validate ALL_USERS requires sudo
+    if [[ "$ALL_USERS" == "true" ]]; then
+        if ! require_sudo; then
+            print_error "--all-users requires sudo access"
+            exit 2
+        fi
+    fi
 }
 
 show_help() {
@@ -130,6 +142,7 @@ Options:
     --verbose, -v          Show detailed output
     --quiet, -q            Suppress non-error output
     --force, -f            Skip confirmation prompts
+    --all-users            Clean files for ALL users on the system (requires sudo)
     --min-age=N            Only clean files older than N days (default: 0)
     -h, --help             Show this help message
 
@@ -146,6 +159,15 @@ Description:
     - React Native caches (Metro, Watchman, Haste)
     - Node modules cache
     - Docker volumes
+
+User Scope:
+    By default, only the current user's files are cleaned.
+    Use --all-users to clean files for ALL users on the system.
+
+    ⚠ WARNING: --all-users requires sudo and will clean files for:
+       - All user home directories
+       - All user caches and logs
+       - All user application data
 
 Warning: Some operations are irreversible. Use --dry-run first.
 
@@ -172,11 +194,11 @@ select_categories_to_clean() {
     local categories=("$@")
     local -a selected_indices=()
 
-    # Display header
-    print_info "=============================================="
-    print_info "Select categories to clean:"
-    print_info "=============================================="
-    print_info ""
+    # Display header (redirect to stderr so it's visible even in subshell)
+    print_info "===============================================" >&2
+    print_info "Select categories to clean:" >&2
+    print_info "===============================================" >&2
+    print_info "" >&2
 
     # Display numbered list
     local idx=1
@@ -225,66 +247,60 @@ select_categories_to_clean() {
                 ;;
         esac
 
-        printf "  %2d) %-35s (%s)\n" "$idx" "$category_display" "$category_path"
+        printf "  %2d) %-35s (%s)\n" "$idx" "$category_display" "$category_path" >&2
         idx=$((idx + 1))
     done
 
-    print_info ""
-    print_info "Enter numbers separated by comma (e.g., 1,2,3)"
-    print_info "Or use range (e.g., 1-5)"
-    print_info "Or type 'all' to select everything"
-    print_info "Or type '0' to cancel"
-    print_info ""
+    print_info "" >&2
+    print_info "Enter numbers separated by comma (e.g., 1,2,3)" >&2
+    print_info "Or type 'all' to select everything" >&2
+    print_info "" >&2
 
     # Read user input
     local input
-    read -r -p "Your choice: " input
+    read -r -p "Your choice: " input </dev/tty
 
-    # Handle special cases
-    if [[ "$input" == "0" ]] || [[ -z "$input" ]]; then
+    # Handle empty input
+    if [[ -z "$input" ]]; then
         return 1
     fi
 
+    # Handle 'all' selection
     if [[ "$input" == "all" ]] || [[ "$input" == "ALL" ]]; then
         for ((i=1; i<=${#categories[@]}; i++)); do
             selected_indices+=($i)
         done
     else
-        # Parse comma-separated and range values
+        # Parse comma-separated values only
         IFS=',' read -ra selections <<< "$input"
         for selection in "${selections[@]}"; do
             # Trim whitespace
             selection=$(echo "$selection" | xargs)
 
-            # Check if it's a range (e.g., 1-5)
-            if [[ "$selection" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-                local start="${BASH_REMATCH[1]}"
-                local end="${BASH_REMATCH[2]}"
-                for ((i=start; i<=end; i++)); do
-                    if [[ $i -ge 1 ]] && [[ $i -le ${#categories[@]} ]]; then
-                        selected_indices+=($i)
-                    fi
-                done
-            # Check if it's a single number
-            elif [[ "$selection" =~ ^[0-9]+$ ]]; then
+            # Check if it's a valid number
+            if [[ "$selection" =~ ^[0-9]+$ ]]; then
                 if [[ $selection -ge 1 ]] && [[ $selection -le ${#categories[@]} ]]; then
                     selected_indices+=($selection)
+                else
+                    print_warning "Invalid selection: $selection (out of range)" >&2
                 fi
+            else
+                print_warning "Invalid selection: $selection (not a number)" >&2
             fi
         done
     fi
 
     # Remove duplicates and sort
     if [[ ${#selected_indices[@]} -eq 0 ]]; then
-        print_warning "No categories selected"
+        print_warning "No categories selected" >&2
         return 1
     fi
 
     selected_indices=($(printf '%s\n' "${selected_indices[@]}" | sort -nu))
 
     # Display selected categories for confirmation
-    print_info ""
-    print_info "Selected categories:"
+    print_info "" >&2
+    print_info "Selected categories:" >&2
     for idx in "${selected_indices[@]}"; do
         local category="${categories[$((idx-1))]}"
         local category_display="$category"
@@ -305,9 +321,9 @@ select_categories_to_clean() {
                 category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
                 ;;
         esac
-        print_info "  - $category_display"
+        print_info "  - $category_display" >&2
     done
-    print_info ""
+    print_info "" >&2
 
     # Export selected indices for main function
     echo "${selected_indices[@]}"
@@ -369,6 +385,9 @@ main() {
             print_warning "Cleanup cancelled"
             exit 0
         fi
+
+        # Skip individual category confirmations since user already confirmed
+        export SKIP_CATEGORY_CONFIRM=true
     else
         # In force or dry-run mode, clean all categories
         for ((i=1; i<=${#category_array[@]}; i++)); do
@@ -380,15 +399,56 @@ main() {
     print_info "Starting cleanup..."
     print_info ""
 
-    # Clean selected categories
-    for idx in "${selected_indices[@]}"; do
-        local category="${category_array[$((idx-1))]}"
-        if clean_category "$category"; then
-            cleaned=$((cleaned + 1))
-        else
-            failed=$((failed + 1))
+    # Determine which users to clean
+    local -a user_homes=()
+    if [[ "$ALL_USERS" == "true" ]]; then
+        print_info "Cleaning for ALL users on the system..."
+        print_info ""
+        while IFS= read -r user_home; do
+            user_homes+=("$user_home")
+        done < <(get_all_user_homes)
+
+        if [[ ${#user_homes[@]} -eq 0 ]]; then
+            print_error "No user home directories found"
+            exit 1
+        fi
+
+        print_info "Found ${#user_homes[@]} user(s) to clean"
+        print_info ""
+    else
+        user_homes=("$HOME")
+    fi
+
+    # Clean selected categories for each user
+    for user_home in "${user_homes[@]}"; do
+        local username=$(basename "$user_home")
+
+        if [[ "$ALL_USERS" == "true" ]]; then
+            print_info "=========================================="
+            print_info "Cleaning for user: $username"
+            print_info "=========================================="
+            print_info ""
+        fi
+
+        # Export HOME_OVERRIDE so cleanup functions can use it
+        export HOME_OVERRIDE="$user_home"
+
+        for idx in "${selected_indices[@]}"; do
+            local category="${category_array[$((idx-1))]}"
+            if clean_category "$category"; then
+                cleaned=$((cleaned + 1))
+            else
+                failed=$((failed + 1))
+            fi
+        done
+
+        if [[ "$ALL_USERS" == "true" ]]; then
+            print_info ""
         fi
     done
+
+    # Unset HOME_OVERRIDE
+    unset HOME_OVERRIDE
 
     # Summary
     print_info ""

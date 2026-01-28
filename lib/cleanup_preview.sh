@@ -34,6 +34,14 @@ if [[ -z "${DISK_ANALYSIS_SH_LOADED:-}" ]]; then
 fi
 
 FORCE_MODE="${FORCE_MODE:-false}"
+SKIP_CATEGORY_CONFIRM="${SKIP_CATEGORY_CONFIRM:-false}"
+ALL_USERS="${ALL_USERS:-false}"
+
+# Helper function to get the correct HOME directory
+# Uses HOME_OVERRIDE if set (for multi-user cleanup), otherwise uses $HOME
+get_user_home() {
+    echo "${HOME_OVERRIDE:-$HOME}"
+}
 
 # ============ Cleanup Category Functions ============
 
@@ -54,7 +62,7 @@ find_orphaned_apps() {
 
     if ! is_macos; then
         # Linux: check ~/.config and ~/.local/share
-        local config_dir="${HOME}/.config"
+        local config_dir="$(get_user_home)/.config"
 
         if [[ -d "$config_dir" ]]; then
             while IFS= read -r app_dir; do
@@ -71,7 +79,7 @@ find_orphaned_apps() {
         fi
     else
         # macOS: check Application Support for apps that no longer exist in /Applications
-        local app_support="${HOME}/Library/Application Support"
+        local app_support="$(get_user_home)/Library/Application Support"
 
         if [[ ! -d "$app_support" ]]; then
             return 0
@@ -232,12 +240,12 @@ scan_node_modules() {
     local min_age_days="${1:-0}"
     local files=()
     local search_paths=(
-        "${HOME}/dev"
-        "${HOME}/projects"
-        "${HOME}/workspace"
-        "${HOME}/code"
-        "${HOME}/Documents"
-        "${HOME}/Desktop"
+        "$(get_user_home)/dev"
+        "$(get_user_home)/projects"
+        "$(get_user_home)/workspace"
+        "$(get_user_home)/code"
+        "$(get_user_home)/Documents"
+        "$(get_user_home)/Desktop"
     )
 
     log_info "Scanning for node_modules directories (optimized scan)..."
@@ -298,10 +306,10 @@ scan_build_artifacts() {
     local min_age_days="${1:-0}"
     local files=()
     local search_paths=(
-        "${HOME}/dev"
-        "${HOME}/projects"
-        "${HOME}/workspace"
-        "${HOME}/code"
+        "$(get_user_home)/dev"
+        "$(get_user_home)/projects"
+        "$(get_user_home)/workspace"
+        "$(get_user_home)/code"
     )
 
     local build_patterns=(
@@ -362,9 +370,9 @@ scan_cleanup_category() {
             local total_size=0
             local file_count=0
             local cache_paths=(
-                "${HOME}/.rncache"
-                "${HOME}/Library/Caches/Metro"
-                "${HOME}/Library/Caches/com.facebook.ReactNativeBuild"
+                "$(get_user_home)/.rncache"
+                "$(get_user_home)/Library/Caches/Metro"
+                "$(get_user_home)/Library/Caches/com.facebook.ReactNativeBuild"
                 "/tmp/metro-*"
                 "/tmp/haste-map-*"
                 "/tmp/react-*"
@@ -407,9 +415,9 @@ scan_cleanup_category() {
             local total_size=0
             local file_count=0
             local cache_paths=(
-                "${HOME}/.android/cache"
-                "${HOME}/.android/build-cache"
-                "${HOME}/Library/Caches/AndroidStudio*"
+                "$(get_user_home)/.android/cache"
+                "$(get_user_home)/.android/build-cache"
+                "$(get_user_home)/Library/Caches/AndroidStudio*"
             )
 
             for cache_path in "${cache_paths[@]}"; do
@@ -445,7 +453,7 @@ scan_cleanup_category() {
             ;;
         gradle)
             # Gradle caches
-            local cache_path="${HOME}/.gradle/caches"
+            local cache_path="$(get_user_home)/.gradle/caches"
             local total_size=0
             local file_count=0
 
@@ -470,8 +478,8 @@ scan_cleanup_category() {
             local total_size=0
             local file_count=0
             local cache_paths=(
-                "${HOME}/Library/Developer/CoreSimulator/Caches"
-                "${HOME}/Library/Developer/CoreSimulator/Devices/*/data/Library/Caches"
+                "$(get_user_home)/Library/Developer/CoreSimulator/Caches"
+                "$(get_user_home)/Library/Developer/CoreSimulator/Devices/*/data/Library/Caches"
             )
 
             for cache_path in "${cache_paths[@]}"; do
@@ -509,7 +517,7 @@ scan_cleanup_category() {
                 return 0
             fi
 
-            local path="${HOME}/Library/Developer/Xcode/Archives"
+            local path="$(get_user_home)/Library/Developer/Xcode/Archives"
             local total_size=0
             local file_count=0
 
@@ -531,7 +539,7 @@ scan_cleanup_category() {
                 return 0
             fi
 
-            local path="${HOME}/Library/Developer/Xcode/iOS DeviceSupport"
+            local path="$(get_user_home)/Library/Developer/Xcode/iOS DeviceSupport"
             local total_size=0
             local file_count=0
 
@@ -551,7 +559,7 @@ scan_cleanup_category() {
             # Use optimized scanning - calculate size with du instead of listing all files
             local total_size=0
             local file_count=0
-            local search_paths=("${HOME}/dev" "${HOME}/projects" "${HOME}/workspace" "${HOME}/code" "${HOME}/Documents" "${HOME}/Desktop")
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code" "$(get_user_home)/Documents" "$(get_user_home)/Desktop")
 
             for base_path in "${search_paths[@]}"; do
                 [[ ! -d "$base_path" ]] && continue
@@ -583,7 +591,7 @@ scan_cleanup_category() {
             # Use optimized scanning - calculate size with du instead of listing all files
             local total_size=0
             local file_count=0
-            local search_paths=("${HOME}/dev" "${HOME}/projects" "${HOME}/workspace" "${HOME}/code")
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code")
             local build_patterns=("dist" "build" "target" ".next" ".turbo" ".parcel-cache" "out" ".output" ".nuxt" ".vuepress/dist" ".cache" "coverage" ".nyc_output")
 
             for base_path in "${search_paths[@]}"; do
@@ -651,10 +659,10 @@ scan_cleanup_category() {
     else
         case "$category" in
             caches)
-                path=$(is_macos && echo "${HOME}/Library/Caches" || echo "${HOME}/.cache")
+                path=$(is_macos && echo "$(get_user_home)/Library/Caches" || echo "$(get_user_home)/.cache")
                 ;;
             logs)
-                path=$(is_macos && echo "${HOME}/Library/Logs" || echo "/var/log")
+                path=$(is_macos && echo "$(get_user_home)/Library/Logs" || echo "/var/log")
                 ;;
             # downloads removed - too dangerous, may contain important user files
             # downloads)
@@ -664,7 +672,7 @@ scan_cleanup_category() {
                 path="/tmp"
                 ;;
             browser_trash)
-                path=$(is_macos && echo "${HOME}/.Trash" || echo "${HOME}/.local/share/Trash")
+                path=$(is_macos && echo "$(get_user_home)/.Trash" || echo "$(get_user_home)/.local/share/Trash")
                 ;;
             *)
                 log_warn "Unknown category: $category"
@@ -932,6 +940,17 @@ cleanup_files_interactive() {
         size_formatted="${size_mb_float} MB"
     fi
 
+    # Skip all confirmations if SKIP_CATEGORY_CONFIRM is set
+    if [[ "$FORCE_MODE" == "true" ]] || is_dry_run || [[ "$SKIP_CATEGORY_CONFIRM" == "true" ]]; then
+        if is_dry_run; then
+            print_info "[DRY-RUN] Would delete ${#files[@]} files"
+        else
+            log_info "Deleting ${#files[@]} files from category: $category"
+        fi
+        return 0
+    fi
+
+    # Show warnings and ask for confirmation only if not skipping
     print_warning "About to delete ${#files[@]} files from category: $category"
     print_info "Total size: $size_formatted"
 
@@ -945,15 +964,6 @@ cleanup_files_interactive() {
             log_info "User cancelled cleanup of development files for category: $category"
             return 1
         fi
-    fi
-
-    if [[ "$FORCE_MODE" == "true" ]] || is_dry_run; then
-        if is_dry_run; then
-            print_info "[DRY-RUN] Would delete ${#files[@]} files"
-        else
-            print_info "[FORCE MODE] Deleting ${#files[@]} files without confirmation"
-        fi
-        return 0
     fi
 
     if ! confirm "Delete these files? (y/N)" "N"; then
@@ -980,9 +990,9 @@ delete_category_files() {
             log_info "Cleaning React Native caches..."
 
             local cache_paths=(
-                "${HOME}/.rncache"
-                "${HOME}/Library/Caches/Metro"
-                "${HOME}/Library/Caches/com.facebook.ReactNativeBuild"
+                "$(get_user_home)/.rncache"
+                "$(get_user_home)/Library/Caches/Metro"
+                "$(get_user_home)/Library/Caches/com.facebook.ReactNativeBuild"
                 "/tmp/metro-*"
                 "/tmp/haste-map-*"
                 "/tmp/react-*"
@@ -1032,19 +1042,23 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to delete ${#dirs_to_delete[@]} React Native cache locations"
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ WARNING: This will delete React Native caches:"
-            print_warning "  - Metro bundler cache"
-            print_warning "  - React Native build cache"
-            print_warning "  - Temporary files"
-            print_warning "  - These caches will be regenerated on next build"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete ${#dirs_to_delete[@]} React Native cache locations"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete React Native caches:"
+                print_warning "  - Metro bundler cache"
+                print_warning "  - React Native build cache"
+                print_warning "  - Temporary files"
+                print_warning "  - These caches will be regenerated on next build"
+                print_warning ""
 
-            if ! confirm "Delete React Native caches? (y/N)" "N"; then
-                log_info "User cancelled React Native cache deletion"
-                return 1
+                if ! confirm "Delete React Native caches? (y/N)" "N"; then
+                    log_info "User cancelled React Native cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting ${#dirs_to_delete[@]} React Native cache locations ($size_formatted)"
             fi
 
             # Delete cache directories
@@ -1070,13 +1084,13 @@ delete_category_files() {
             log_info "Cleaning Android Studio caches..."
 
             local cache_paths=(
-                "${HOME}/.android/cache"
-                "${HOME}/.android/build-cache"
+                "$(get_user_home)/.android/cache"
+                "$(get_user_home)/.android/build-cache"
             )
 
             # Add macOS-specific paths
             if is_macos; then
-                cache_paths+=("${HOME}/Library/Caches/AndroidStudio*")
+                cache_paths+=("$(get_user_home)/Library/Caches/AndroidStudio*")
             fi
 
             # Calculate total size
@@ -1123,18 +1137,22 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to delete ${#dirs_to_delete[@]} Android Studio cache locations"
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ WARNING: This will delete Android Studio caches:"
-            print_warning "  - Build caches"
-            print_warning "  - IDE caches"
-            print_warning "  - These will be regenerated automatically"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete ${#dirs_to_delete[@]} Android Studio cache locations"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Android Studio caches:"
+                print_warning "  - Build caches"
+                print_warning "  - IDE caches"
+                print_warning "  - These will be regenerated automatically"
+                print_warning ""
 
-            if ! confirm "Delete Android Studio caches? (y/N)" "N"; then
-                log_info "User cancelled Android Studio cache deletion"
-                return 1
+                if ! confirm "Delete Android Studio caches? (y/N)" "N"; then
+                    log_info "User cancelled Android Studio cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting ${#dirs_to_delete[@]} Android Studio cache locations ($size_formatted)"
             fi
 
             # Delete cache directories
@@ -1159,7 +1177,7 @@ delete_category_files() {
         gradle)
             log_info "Cleaning Gradle caches..."
 
-            local cache_path="${HOME}/.gradle/caches"
+            local cache_path="$(get_user_home)/.gradle/caches"
 
             if [[ ! -e "$cache_path" ]]; then
                 log_info "No Gradle caches found"
@@ -1186,18 +1204,22 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to delete Gradle caches"
-            print_info "Location: $cache_path"
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ WARNING: This will delete Gradle caches:"
-            print_warning "  - Downloaded dependencies will be removed"
-            print_warning "  - They will be re-downloaded on next build"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Gradle caches"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Gradle caches:"
+                print_warning "  - Downloaded dependencies will be removed"
+                print_warning "  - They will be re-downloaded on next build"
+                print_warning ""
 
-            if ! confirm "Delete Gradle caches? (y/N)" "N"; then
-                log_info "User cancelled Gradle cache deletion"
-                return 1
+                if ! confirm "Delete Gradle caches? (y/N)" "N"; then
+                    log_info "User cancelled Gradle cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Gradle caches ($size_formatted)"
             fi
 
             if rm -rf "$cache_path" 2>/dev/null; then
@@ -1218,7 +1240,7 @@ delete_category_files() {
             log_info "Cleaning iOS Simulator caches..."
 
             local cache_paths=(
-                "${HOME}/Library/Developer/CoreSimulator/Caches"
+                "$(get_user_home)/Library/Developer/CoreSimulator/Caches"
             )
 
             # Calculate size
@@ -1252,17 +1274,21 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to delete iOS Simulator caches"
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ WARNING: This will delete iOS Simulator caches:"
-            print_warning "  - Simulator app data may be cleared"
-            print_warning "  - Caches will be regenerated automatically"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete iOS Simulator caches"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete iOS Simulator caches:"
+                print_warning "  - Simulator app data may be cleared"
+                print_warning "  - Caches will be regenerated automatically"
+                print_warning ""
 
-            if ! confirm "Delete iOS Simulator caches? (y/N)" "N"; then
-                log_info "User cancelled iOS Simulator cache deletion"
-                return 1
+                if ! confirm "Delete iOS Simulator caches? (y/N)" "N"; then
+                    log_info "User cancelled iOS Simulator cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting iOS Simulator caches ($size_formatted)"
             fi
 
             # Delete cache directories
@@ -1292,7 +1318,7 @@ delete_category_files() {
 
             log_info "Cleaning Xcode Archives..."
 
-            local path="${HOME}/Library/Developer/Xcode/Archives"
+            local path="$(get_user_home)/Library/Developer/Xcode/Archives"
 
             if [[ ! -e "$path" ]]; then
                 log_info "No Xcode Archives found"
@@ -1319,19 +1345,23 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to delete Xcode Archives"
-            print_info "Location: $path"
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ CRITICAL WARNING: This will delete Xcode Archives:"
-            print_warning "  - App archives for App Store submissions"
-            print_warning "  - Debug symbols for crash reports"
-            print_warning "  - Make sure you have backups or don't need these archives"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Xcode Archives"
+                print_info "Location: $path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ CRITICAL WARNING: This will delete Xcode Archives:"
+                print_warning "  - App archives for App Store submissions"
+                print_warning "  - Debug symbols for crash reports"
+                print_warning "  - Make sure you have backups or don't need these archives"
+                print_warning ""
 
-            if ! confirm "Delete Xcode Archives? (y/N)" "N"; then
-                log_info "User cancelled Xcode Archives deletion"
-                return 1
+                if ! confirm "Delete Xcode Archives? (y/N)" "N"; then
+                    log_info "User cancelled Xcode Archives deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Xcode Archives ($size_formatted)"
             fi
 
             if rm -rf "$path" 2>/dev/null; then
@@ -1351,7 +1381,7 @@ delete_category_files() {
 
             log_info "Cleaning Xcode Device Support..."
 
-            local path="${HOME}/Library/Developer/Xcode/iOS DeviceSupport"
+            local path="$(get_user_home)/Library/Developer/Xcode/iOS DeviceSupport"
 
             if [[ ! -e "$path" ]]; then
                 log_info "No Xcode Device Support found"
@@ -1378,6 +1408,7 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
             print_warning "About to delete Xcode Device Support"
             print_info "Location: $path"
             print_info "Total size: $size_formatted"
@@ -1390,6 +1421,9 @@ delete_category_files() {
             if ! confirm "Delete Xcode Device Support? (y/N)" "N"; then
                 log_info "User cancelled Xcode Device Support deletion"
                 return 1
+            fi
+            else
+                log_info "Deleting Xcode Device Support ($size_formatted)"
             fi
 
             if rm -rf "$path" 2>/dev/null; then
@@ -1404,7 +1438,7 @@ delete_category_files() {
         node_modules)
             # Find all node_modules directories (not just files)
             local node_modules_dirs=()
-            local search_paths=("${HOME}/dev" "${HOME}/projects" "${HOME}/workspace" "${HOME}/code" "${HOME}/Documents" "${HOME}/Desktop")
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code" "$(get_user_home)/Documents" "$(get_user_home)/Desktop")
 
             log_info "Finding node_modules directories..."
             for base_path in "${search_paths[@]}"; do
@@ -1454,17 +1488,21 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to delete $dir_count node_modules directories"
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ WARNING: This will delete entire node_modules directories"
-            print_warning "  - All dependencies will be removed"
-            print_warning "  - You can restore them with: npm install, yarn install, or pnpm install"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete $dir_count node_modules directories"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete entire node_modules directories"
+                print_warning "  - All dependencies will be removed"
+                print_warning "  - You can restore them with: npm install, yarn install, or pnpm install"
+                print_warning ""
 
-            if ! confirm "Delete all node_modules directories? (y/N)" "N"; then
-                log_info "User cancelled node_modules deletion"
-                return 1
+                if ! confirm "Delete all node_modules directories? (y/N)" "N"; then
+                    log_info "User cancelled node_modules deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting $dir_count node_modules directories ($size_formatted)"
             fi
 
             # Delete entire node_modules directories
@@ -1528,10 +1566,14 @@ delete_category_files() {
                 return 0
             fi
 
-            print_warning "About to remove Docker volumes (unused volumes will be removed)"
-            print_info "Volumes found: $(echo "$volumes" | wc -l | tr -d ' ')"
-            if ! confirm "Remove unused Docker volumes? (y/N)" "N"; then
-                return 1
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to remove Docker volumes (unused volumes will be removed)"
+                print_info "Volumes found: $(echo "$volumes" | wc -l | tr -d ' ')"
+                if ! confirm "Remove unused Docker volumes? (y/N)" "N"; then
+                    return 1
+                fi
+            else
+                log_info "Removing unused Docker volumes ($(echo "$volumes" | wc -l | tr -d ' ') found)"
             fi
 
             # Use timeout to prevent hanging, and check if Docker is responsive
@@ -1626,31 +1668,35 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            # Show list of orphaned apps
-            print_warning "Found ${#orphaned_dirs[@]} orphaned application(s):"
-            for dir in "${orphaned_dirs[@]}"; do
-                local app_name=$(basename "$dir")
-                local app_size=$(du -sh "$dir" 2>/dev/null | awk '{print $1}' || echo "unknown")
-                print_info "  - $app_name ($app_size)"
-            done
-            print_info ""
-            print_info "Total size: $size_formatted"
-            print_warning ""
-            print_warning "⚠ WARNING: This will delete Application Support and Preferences for deleted apps"
-            print_warning "  - Application Support: ~/Library/Application Support/[app]"
-            print_warning "  - Preferences: ~/Library/Preferences/[app]*.plist"
-            print_warning ""
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                # Show list of orphaned apps
+                print_warning "Found ${#orphaned_dirs[@]} orphaned application(s):"
+                for dir in "${orphaned_dirs[@]}"; do
+                    local app_name=$(basename "$dir")
+                    local app_size=$(du -sh "$dir" 2>/dev/null | awk '{print $1}' || echo "unknown")
+                    print_info "  - $app_name ($app_size)"
+                done
+                print_info ""
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Application Support and Preferences for deleted apps"
+                print_warning "  - Application Support: ~/Library/Application Support/[app]"
+                print_warning "  - Preferences: ~/Library/Preferences/[app]*.plist"
+                print_warning ""
 
-            if ! confirm "Delete orphaned application configurations? (y/N)" "N"; then
-                log_info "User cancelled orphaned apps cleanup"
-                return 1
+                if ! confirm "Delete orphaned application configurations? (y/N)" "N"; then
+                    log_info "User cancelled orphaned apps cleanup"
+                    return 1
+                fi
+            else
+                log_info "Deleting ${#orphaned_dirs[@]} orphaned application configurations ($size_formatted)"
             fi
 
             # Delete Application Support directories
             local deleted=0
             local failed=0
-            local app_support="${HOME}/Library/Application Support"
-            local preferences="${HOME}/Library/Preferences"
+            local app_support="$(get_user_home)/Library/Application Support"
+            local preferences="$(get_user_home)/Library/Preferences"
 
             for dir in "${orphaned_dirs[@]}"; do
                 local app_name=$(basename "$dir")
@@ -1742,12 +1788,16 @@ delete_category_files() {
                 size_formatted="${size_mb_float} MB"
             fi
 
-            print_warning "About to empty trash: ${#trash_items[@]} items"
-            print_info "Total size: $size_formatted"
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to empty trash: ${#trash_items[@]} items"
+                print_info "Total size: $size_formatted"
 
-            if ! confirm "Empty trash? (y/N)" "N"; then
-                log_info "User cancelled trash cleanup"
-                return 1
+                if ! confirm "Empty trash? (y/N)" "N"; then
+                    log_info "User cancelled trash cleanup"
+                    return 1
+                fi
+            else
+                log_info "Emptying trash: ${#trash_items[@]} items ($size_formatted)"
             fi
 
             # Use macOS native command to empty trash (most reliable method)
@@ -1791,9 +1841,13 @@ delete_category_files() {
                 return 0
             fi
 
-            print_warning "About to empty trash: ${#trash_items[@]} items"
-            if ! confirm "Empty trash? (y/N)" "N"; then
-                return 1
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to empty trash: ${#trash_items[@]} items"
+                if ! confirm "Empty trash? (y/N)" "N"; then
+                    return 1
+                fi
+            else
+                log_info "Emptying trash: ${#trash_items[@]} items"
             fi
 
             local deleted=0

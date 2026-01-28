@@ -222,7 +222,7 @@ The disk cleanup functionality includes several safety mechanisms:
 - **Dry-Run Support**: Use `--dry-run` to preview without making changes
 - **Age Filtering**: Use `--min-age=N` to only clean files older than N days
 - **Force Mode**: Use `--force` to skip confirmations (use with caution)
-- **Numeric Selection**: Choose specific categories to clean (1,2,3 or 1-5 or "all")
+- **Numeric Selection**: Choose specific categories to clean (1, 1,2,3 or "all")
 
 **What gets cleaned:**
 - User caches (`~/Library/Caches` on macOS, `~/.cache` on Linux)
@@ -261,6 +261,7 @@ The disk cleanup functionality includes several safety mechanisms:
 #### Disk Cleanup Scripts (`cleanup-disk.sh`)
 
 - `--force, -f`: Skip confirmation prompts (use with caution)
+- `--all-users`: Clean files for ALL users on the system (requires sudo)
 - `--min-age=N`: Only clean files older than N days (default: 0, all files)
 
 **Examples:**
@@ -268,7 +269,10 @@ The disk cleanup functionality includes several safety mechanisms:
 ./mac/cleanup-disk.sh --dry-run
 ./mac/cleanup-disk.sh --force --min-age=30
 ./mac/cleanup-disk.sh --min-age=7  # Only files older than 7 days
+./mac/cleanup-disk.sh --all-users  # Clean for all users (requires sudo)
 ```
+
+**⚠ Important**: By default, cleanup scripts only clean files for the **current user**. Use `--all-users` to clean files for all users on the system (requires sudo access).
 
 #### Memory Cleanup Scripts (`clean-memory.sh`)
 
@@ -603,7 +607,7 @@ A funcionalidade de limpeza de disco inclui vários mecanismos de segurança:
 - **Suporte a Dry-Run**: Use `--dry-run` para visualizar sem fazer mudanças
 - **Filtragem por Idade**: Use `--min-age=N` para limpar apenas arquivos mais antigos que N dias
 - **Modo Force**: Use `--force` para pular confirmações (use com cautela)
-- **Seleção Numérica**: Escolha categorias específicas para limpar (1,2,3 ou 1-5 ou "all")
+- **Seleção Numérica**: Escolha categorias específicas para limpar (1, 1,2,3 ou "all")
 
 **O que é limpo:**
 - Caches do usuário (`~/Library/Caches` no macOS, `~/.cache` no Linux)
@@ -642,6 +646,7 @@ A funcionalidade de limpeza de disco inclui vários mecanismos de segurança:
 #### Scripts de Limpeza de Disco (`cleanup-disk.sh`)
 
 - `--force, -f`: Pular prompts de confirmação (use com cautela)
+- `--all-users`: Limpar arquivos de TODOS os usuários do sistema (requer sudo)
 - `--min-age=N`: Limpar apenas arquivos mais antigos que N dias (padrão: 0, todos os arquivos)
 
 **Exemplos:**
@@ -649,7 +654,10 @@ A funcionalidade de limpeza de disco inclui vários mecanismos de segurança:
 ./mac/cleanup-disk.sh --dry-run
 ./mac/cleanup-disk.sh --force --min-age=30
 ./mac/cleanup-disk.sh --min-age=7  # Apenas arquivos mais antigos que 7 dias
+./mac/cleanup-disk.sh --all-users  # Limpar para todos os usuários (requer sudo)
 ```
+
+**⚠ Importante**: Por padrão, os scripts de limpeza apenas limpam arquivos do **usuário atual**. Use `--all-users` para limpar arquivos de todos os usuários do sistema (requer acesso sudo).
 
 #### Scripts de Limpeza de Memória (`clean-memory.sh`)
 

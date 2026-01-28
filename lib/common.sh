@@ -122,6 +122,28 @@ log_debug() {
     log_message "DEBUG" "$@"
 }
 
+# ============ Print Functions (User-Facing Output) ============
+
+print_info() {
+    echo -e "$@"
+    log_info "$@"
+}
+
+print_success() {
+    color_echo green "✓ $*"
+    log_success "$@"
+}
+
+print_warning() {
+    color_echo yellow "⚠ $*"
+    log_warn "$@"
+}
+
+print_error() {
+    color_echo red "✗ $*" >&2
+    log_error "$@"
+}
+
 # ============ Validation Functions ============
 
 require_sudo() {
@@ -203,6 +225,43 @@ check_disk_space() {
     fi
 
     return 0
+}
+
+# Get all user home directories on the system
+get_all_user_homes() {
+    local -a user_homes=()
+
+    if is_macos; then
+        # macOS: List all user directories, excluding system users
+        while IFS= read -r user_dir; do
+            local username=$(basename "$user_dir")
+            # Skip system directories
+            if [[ "$username" != "Shared" ]] && [[ "$username" != "Guest" ]] && \
+               [[ "$username" != ".localized" ]] && [[ ! "$username" =~ ^\. ]]; then
+                # Verify it's a real user home directory
+                if [[ -d "$user_dir" ]] && [[ -r "$user_dir" ]]; then
+                    user_homes+=("$user_dir")
+                fi
+            fi
+        done < <(find /Users -maxdepth 1 -mindepth 1 -type d 2>/dev/null)
+    else
+        # Linux: List all user directories
+        while IFS= read -r user_dir; do
+            local username=$(basename "$user_dir")
+            # Verify it's a real user home directory
+            if [[ -d "$user_dir" ]] && [[ -r "$user_dir" ]]; then
+                user_homes+=("$user_dir")
+            fi
+        done < <(find /home -maxdepth 1 -mindepth 1 -type d 2>/dev/null)
+
+        # Also check /root for root user
+        if [[ -d "/root" ]] && [[ -r "/root" ]]; then
+            user_homes+=("/root")
+        fi
+    fi
+
+    # Return user homes
+    printf '%s\n' "${user_homes[@]}"
 }
 
 # ============ User Interaction Functions ============
