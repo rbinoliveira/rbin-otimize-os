@@ -71,9 +71,9 @@ format_bytes() {
 get_disk_categories() {
     if is_macos; then
         # Removed 'downloads' - too dangerous, may contain important user files
-        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps"
+        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache cocoapods_cache yarn_cache pip_cache gem_cache homebrew_cache"
     elif is_linux; then
-        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps"
+        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
     else
         echo "caches logs temp"
     fi
@@ -95,8 +95,21 @@ analyze_disk_usage() {
 
     if command -v du >/dev/null 2>&1; then
         # Calculate total size (protected dirs included in size but excluded from counts)
-        local size_output=$(du -sk "$path" 2>/dev/null | awk '{print $1}' || echo "0")
-        total_size=$((size_output * 1024))
+        local size_output=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]' || echo "0")
+        # Ensure we have a valid number, default to 0 if empty or invalid
+        if [[ -z "$size_output" ]] || ! [[ "$size_output" =~ ^[0-9]+$ ]]; then
+            size_output="0"
+        fi
+        # Use awk for multiplication to handle large numbers safely
+        total_size=$(awk "BEGIN {printf \"%.0f\", $size_output * 1024}" 2>/dev/null)
+        # Fallback to bash arithmetic if awk fails or returns empty
+        if [[ -z "$total_size" ]] || ! [[ "$total_size" =~ ^[0-9]+$ ]]; then
+            if [[ "$size_output" =~ ^[0-9]+$ ]]; then
+                total_size=$((size_output * 1024))
+            else
+                total_size=0
+            fi
+        fi
 
         # Count files and directories excluding protected ones
         file_count=$(find "$path" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \) -prune -o -maxdepth "$max_depth" -type f -print 2>/dev/null | wc -l | tr -d ' ')
@@ -237,6 +250,53 @@ get_category_path() {
         snap)
             if is_linux; then
                 echo "/var/lib/snapd/cache"
+            else
+                echo ""
+            fi
+            ;;
+        npm_cache)
+            echo "$(get_user_home)/.npm"
+            ;;
+        expo_cache)
+            echo "$(get_user_home)/.expo"
+            ;;
+        vscode_cache)
+            if is_macos; then
+                echo "$(get_user_home)/Library/Application Support/Code/Cache"
+            else
+                echo "$(get_user_home)/.config/Code/Cache"
+            fi
+            ;;
+        nvm_cache)
+            echo "$(get_user_home)/.nvm/.cache"
+            ;;
+        cocoapods_cache)
+            if is_macos; then
+                echo "$(get_user_home)/.cocoapods"
+            else
+                echo ""
+            fi
+            ;;
+        yarn_cache)
+            echo "$(get_user_home)/.yarn/cache"
+            ;;
+        pip_cache)
+            if is_macos; then
+                echo "$(get_user_home)/Library/Caches/pip"
+            else
+                echo "$(get_user_home)/.cache/pip"
+            fi
+            ;;
+        gem_cache)
+            echo "$(get_user_home)/.gem/cache"
+            ;;
+        homebrew_cache)
+            if is_macos; then
+                if command -v brew >/dev/null 2>&1; then
+                    echo "$(brew --cache)"
+                else
+                    echo "$(get_user_home)/Library/Caches/Homebrew"
+                fi
             else
                 echo ""
             fi

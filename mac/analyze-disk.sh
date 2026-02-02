@@ -32,6 +32,13 @@ else
     exit 1
 fi
 
+if [[ -f "${PROJECT_ROOT}/lib/cleanup_preview.sh" ]]; then
+    source "${PROJECT_ROOT}/lib/cleanup_preview.sh"
+else
+    echo "Error: lib/cleanup_preview.sh not found" >&2
+    exit 1
+fi
+
 # ============ Logging Initialization ============
 
 init_logging() {
@@ -232,15 +239,22 @@ get_top_items() {
 # Format size in MB or GB (user preference)
 format_size_mb() {
     local bytes="$1"
+    
+    # Ensure bytes is a valid number
+    if ! [[ "$bytes" =~ ^[0-9]+$ ]]; then
+        echo "0 MB"
+        return
+    fi
+    
     local size_mb=$((bytes / 1024 / 1024))
 
     if [[ $size_mb -ge 1024 ]]; then
-        # If >= 1GB, show in GB
-        local size_gb=$(awk "BEGIN {printf \"%.2f\", $bytes / 1073741824}")
+        # If >= 1GB, show in GB (force LC_NUMERIC=C to use dot as decimal separator)
+        local size_gb=$(LC_NUMERIC=C awk "BEGIN {printf \"%.2f\", $bytes / 1073741824}")
         echo "${size_gb} GB"
     else
-        # Show in MB
-        local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $bytes / 1048576}")
+        # Show in MB (force LC_NUMERIC=C to use dot as decimal separator)
+        local size_mb_float=$(LC_NUMERIC=C awk "BEGIN {printf \"%.2f\", $bytes / 1048576}")
         echo "${size_mb_float} MB"
     fi
 }
@@ -332,7 +346,8 @@ display_cleanup_opportunities() {
 
             # Highlight if size is above threshold (100MB default)
             if [[ $size_mb -ge ${HIGHLIGHT_THRESHOLD:-100} ]]; then
-                opportunities+=("$cat_name|$path|$size_formatted|$size_mb")
+                # Store size in bytes for proper formatting later
+                opportunities+=("$cat_name|$path|$size|$size_mb")
             fi
         fi
     done
@@ -347,7 +362,7 @@ display_cleanup_opportunities() {
     echo "--------------------------------------------------------------------------------"
 
     for opp in "${opportunities[@]}"; do
-        IFS='|' read -r cat_name path size_formatted size_mb <<< "$opp"
+        IFS='|' read -r cat_name path size_bytes size_mb <<< "$opp"
 
         # Truncate long paths
         local display_path="$path"
@@ -355,7 +370,13 @@ display_cleanup_opportunities() {
             display_path="...${display_path: -45}"
         fi
 
-        printf "%-20s %-50s %15s\n" "$cat_name" "$display_path" "$size_formatted"
+        # Ensure size_bytes is a valid number (remove any formatting)
+        size_bytes=$(echo "$size_bytes" | tr -d ',' | tr -d ' ' | grep -oE '[0-9]+' || echo "0")
+        
+        # Format size to ensure it's human-readable
+        local display_size=$(format_size_mb "$size_bytes")
+
+        printf "%-20s %-50s %15s\n" "$cat_name" "$display_path" "$display_size"
     done
 
     print_info ""

@@ -34,6 +34,13 @@ else
     exit 1
 fi
 
+if [[ -f "${PROJECT_ROOT}/lib/cleanup_preview.sh" ]]; then
+    source "${PROJECT_ROOT}/lib/cleanup_preview.sh"
+else
+    echo "Error: lib/cleanup_preview.sh not found" >&2
+    exit 1
+fi
+
 # Initialize logging
 init_logging() {
     # Try system log directory first, fallback to user directory

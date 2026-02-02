@@ -184,11 +184,17 @@ clean_category() {
 
     log_info "Cleaning category: $category"
 
-    if delete_category_files "$category" "$MIN_AGE_DAYS"; then
-        print_success "Cleaned category: $category"
+    # Redirect verbose output to log only, keep user-facing messages visible
+    if delete_category_files "$category" "$MIN_AGE_DAYS" 2>&1 | while IFS= read -r line; do
+        # Only show important messages to user, log everything
+        if [[ "$line" == *"Deleted"* ]] || [[ "$line" == *"Failed"* ]] || [[ "$line" == *"ERROR"* ]] || [[ "$line" == *"WARNING"* ]]; then
+            log_info "$line"
+        else
+            log_debug "$line"
+        fi
+    done; then
         return 0
     else
-        print_warning "Failed to clean category: $category"
         return 1
     fi
 }
@@ -245,6 +251,33 @@ select_categories_to_clean() {
                 ;;
             orphaned_apps)
                 category_display="Orphaned Apps (Deleted Apps Configs)"
+                ;;
+            npm_cache)
+                category_display="NPM Cache"
+                ;;
+            expo_cache)
+                category_display="Expo Cache"
+                ;;
+            vscode_cache)
+                category_display="VS Code Cache"
+                ;;
+            nvm_cache)
+                category_display="NVM Cache"
+                ;;
+            cocoapods_cache)
+                category_display="CocoaPods Cache"
+                ;;
+            yarn_cache)
+                category_display="Yarn Cache"
+                ;;
+            pip_cache)
+                category_display="Pip Cache (Python)"
+                ;;
+            gem_cache)
+                category_display="Gem Cache (Ruby)"
+                ;;
+            homebrew_cache)
+                category_display="Homebrew Cache"
                 ;;
             *)
                 category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
@@ -320,6 +353,33 @@ select_categories_to_clean() {
                 ;;
             orphaned_apps)
                 category_display="Orphaned Apps (Deleted Apps Configs)"
+                ;;
+            npm_cache)
+                category_display="NPM Cache"
+                ;;
+            expo_cache)
+                category_display="Expo Cache"
+                ;;
+            vscode_cache)
+                category_display="VS Code Cache"
+                ;;
+            nvm_cache)
+                category_display="NVM Cache"
+                ;;
+            cocoapods_cache)
+                category_display="CocoaPods Cache"
+                ;;
+            yarn_cache)
+                category_display="Yarn Cache"
+                ;;
+            pip_cache)
+                category_display="Pip Cache (Python)"
+                ;;
+            gem_cache)
+                category_display="Gem Cache (Ruby)"
+                ;;
+            homebrew_cache)
+                category_display="Homebrew Cache"
                 ;;
             *)
                 category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
@@ -423,6 +483,10 @@ main() {
         user_homes=("$HOME")
     fi
 
+    # Calculate total categories to process
+    local total_categories=$((${#selected_indices[@]} * ${#user_homes[@]}))
+    local current_category=0
+
     # Clean selected categories for each user
     for user_home in "${user_homes[@]}"; do
         local username=$(basename "$user_home")
@@ -439,11 +503,66 @@ main() {
 
         for idx in "${selected_indices[@]}"; do
             local category="${category_array[$((idx-1))]}"
+            current_category=$((current_category + 1))
+            
+            # Format category name for display
+            local category_display="$category"
+            case "$category" in
+                browser_trash)
+                    category_display="System Trash (Lixeira)"
+                    ;;
+                node_modules)
+                    category_display="node_modules"
+                    ;;
+                build_artifacts)
+                    category_display="Build Artifacts"
+                    ;;
+                orphaned_apps)
+                    category_display="Orphaned Apps (Deleted Apps Configs)"
+                    ;;
+                npm_cache)
+                    category_display="NPM Cache"
+                    ;;
+                expo_cache)
+                    category_display="Expo Cache"
+                    ;;
+                vscode_cache)
+                    category_display="VS Code Cache"
+                    ;;
+                nvm_cache)
+                    category_display="NVM Cache"
+                    ;;
+                cocoapods_cache)
+                    category_display="CocoaPods Cache"
+                    ;;
+                yarn_cache)
+                    category_display="Yarn Cache"
+                    ;;
+                pip_cache)
+                    category_display="Pip Cache (Python)"
+                    ;;
+                gem_cache)
+                    category_display="Gem Cache (Ruby)"
+                    ;;
+                homebrew_cache)
+                    category_display="Homebrew Cache"
+                    ;;
+                *)
+                    category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
+                    ;;
+            esac
+
+            # Show progress
+            print_info "[$current_category/$total_categories] Processing: $category_display..."
+            
             if clean_category "$category"; then
                 cleaned=$((cleaned + 1))
+                print_success "✓ Completed: $category_display"
             else
                 failed=$((failed + 1))
+                print_warning "✗ Failed: $category_display"
             fi
+            print_info ""
         done
 
         if [[ "$ALL_USERS" == "true" ]]; then

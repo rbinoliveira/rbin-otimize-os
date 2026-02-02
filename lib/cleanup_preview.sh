@@ -48,9 +48,9 @@ get_user_home() {
 get_cleanup_categories() {
     if is_macos; then
         # Removed 'downloads' - too dangerous, may contain important user files
-        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps"
+        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache cocoapods_cache yarn_cache pip_cache gem_cache homebrew_cache"
     elif is_linux; then
-        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps"
+        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
     else
         echo "caches logs temp"
     fi
@@ -652,6 +652,198 @@ scan_cleanup_category() {
             echo "${category}|Application Support & Preferences|${dir_count}|${total_size}"
             return 0
             ;;
+        npm_cache)
+            local cache_path="$(get_user_home)/.npm"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        expo_cache)
+            local cache_path="$(get_user_home)/.expo"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        vscode_cache)
+            local cache_paths=()
+            if is_macos; then
+                cache_paths=(
+                    "$(get_user_home)/Library/Application Support/Code/Cache"
+                    "$(get_user_home)/Library/Application Support/Code/CachedData"
+                    "$(get_user_home)/Library/Application Support/Code/CachedExtensions"
+                    "$(get_user_home)/Library/Application Support/Code/logs"
+                )
+            else
+                cache_paths=(
+                    "$(get_user_home)/.config/Code/Cache"
+                    "$(get_user_home)/.config/Code/CachedData"
+                    "$(get_user_home)/.config/Code/CachedExtensions"
+                    "$(get_user_home)/.config/Code/logs"
+                )
+            fi
+
+            local total_size=0
+            local file_count=0
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                    local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                    if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                        total_size=$((total_size + dir_size * 1024))
+                        file_count=$((file_count + dir_size * 20))
+                    fi
+                fi
+            done
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|VS Code cache|${file_count}|${total_size}"
+            return 0
+            ;;
+        nvm_cache)
+            local cache_path="$(get_user_home)/.nvm/.cache"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        cocoapods_cache)
+            if ! is_macos; then
+                return 0
+            fi
+
+            local cache_path="$(get_user_home)/.cocoapods"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        yarn_cache)
+            local cache_path="$(get_user_home)/.yarn/cache"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        pip_cache)
+            local cache_path=""
+            if is_macos; then
+                cache_path="$(get_user_home)/Library/Caches/pip"
+            else
+                cache_path="$(get_user_home)/.cache/pip"
+            fi
+
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        gem_cache)
+            local cache_path="$(get_user_home)/.gem/cache"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        homebrew_cache)
+            if ! is_macos; then
+                return 0
+            fi
+
+            local cache_path=""
+            if command -v brew >/dev/null 2>&1; then
+                cache_path=$(brew --cache 2>/dev/null || echo "")
+            fi
+
+            if [[ -z "$cache_path" ]]; then
+                cache_path="$(get_user_home)/Library/Caches/Homebrew"
+            fi
+
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
     esac
 
     if command -v get_category_path >/dev/null 2>&1; then
@@ -984,6 +1176,11 @@ delete_category_files() {
         return 0
     fi
 
+    # Show initial progress message (visible to user)
+    if [[ "$QUIET" != "true" ]]; then
+        echo "  → Analyzing $category..." >&2
+    fi
+
     # Handle special categories
     case "$category" in
         react_native)
@@ -1062,6 +1259,10 @@ delete_category_files() {
             fi
 
             # Delete cache directories
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting ${#dirs_to_delete[@]} cache location(s)..." >&2
+            fi
+
             local deleted=0
             local failed=0
             for dir in "${dirs_to_delete[@]}"; do
@@ -1077,6 +1278,9 @@ delete_category_files() {
             done
 
             log_success "Deleted $deleted React Native cache locations"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ React Native cache cleaned ($size_formatted)" >&2
+            fi
             [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
             return 0
             ;;
@@ -1222,8 +1426,15 @@ delete_category_files() {
                 log_info "Deleting Gradle caches ($size_formatted)"
             fi
 
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Gradle cache..." >&2
+            fi
+
             if rm -rf "$cache_path" 2>/dev/null; then
                 log_success "Deleted Gradle caches"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Gradle cache cleaned ($size_formatted)" >&2
+                fi
             else
                 log_warn "Failed to delete Gradle caches"
                 return 1
@@ -1292,6 +1503,10 @@ delete_category_files() {
             fi
 
             # Delete cache directories
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting ${#dirs_to_delete[@]} iOS Simulator cache location(s)..." >&2
+            fi
+
             local deleted=0
             local failed=0
             for dir in "${dirs_to_delete[@]}"; do
@@ -1307,6 +1522,9 @@ delete_category_files() {
             done
 
             log_success "Deleted $deleted iOS Simulator cache locations"
+            if [[ "$QUIET" != "true" ]] && [[ $deleted -gt 0 ]]; then
+                echo "  ✓ iOS Simulator cache cleaned ($size_formatted)" >&2
+            fi
             [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
             return 0
             ;;
@@ -1364,8 +1582,15 @@ delete_category_files() {
                 log_info "Deleting Xcode Archives ($size_formatted)"
             fi
 
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Xcode Archives..." >&2
+            fi
+
             if rm -rf "$path" 2>/dev/null; then
                 log_success "Deleted Xcode Archives"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Xcode Archives cleaned ($size_formatted)" >&2
+                fi
             else
                 log_warn "Failed to delete Xcode Archives"
                 return 1
@@ -1426,8 +1651,15 @@ delete_category_files() {
                 log_info "Deleting Xcode Device Support ($size_formatted)"
             fi
 
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Xcode Device Support..." >&2
+            fi
+
             if rm -rf "$path" 2>/dev/null; then
                 log_success "Deleted Xcode Device Support"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Xcode Device Support cleaned ($size_formatted)" >&2
+                fi
             else
                 log_warn "Failed to delete Xcode Device Support"
                 return 1
@@ -1733,6 +1965,655 @@ delete_category_files() {
 
             log_success "Deleted $deleted orphaned application configurations"
             [[ $failed -gt 0 ]] && log_warn "$failed configurations could not be deleted"
+            return 0
+            ;;
+        npm_cache)
+            log_info "Cleaning npm cache..."
+
+            local cache_path="$(get_user_home)/.npm"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No npm cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete npm cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete npm cache:"
+                print_warning "  - Downloaded packages will be removed"
+                print_warning "  - They will be re-downloaded on next npm install"
+                print_warning ""
+
+                if ! confirm "Delete npm cache? (y/N)" "N"; then
+                    log_info "User cancelled npm cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting npm cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting npm cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted npm cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ NPM cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete npm cache"
+                return 1
+            fi
+
+            return 0
+            ;;
+        expo_cache)
+            log_info "Cleaning Expo cache..."
+
+            local cache_path="$(get_user_home)/.expo"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Expo cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Expo cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Expo cache:"
+                print_warning "  - Build caches and temporary files"
+                print_warning "  - They will be regenerated on next Expo build"
+                print_warning ""
+
+                if ! confirm "Delete Expo cache? (y/N)" "N"; then
+                    log_info "User cancelled Expo cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Expo cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Expo cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Expo cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Expo cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Expo cache"
+                return 1
+            fi
+
+            return 0
+            ;;
+        vscode_cache)
+            log_info "Cleaning VS Code cache..."
+
+            local cache_paths=()
+            if is_macos; then
+                cache_paths=(
+                    "$(get_user_home)/Library/Application Support/Code/Cache"
+                    "$(get_user_home)/Library/Application Support/Code/CachedData"
+                    "$(get_user_home)/Library/Application Support/Code/CachedExtensions"
+                    "$(get_user_home)/Library/Application Support/Code/logs"
+                )
+            else
+                cache_paths=(
+                    "$(get_user_home)/.config/Code/Cache"
+                    "$(get_user_home)/.config/Code/CachedData"
+                    "$(get_user_home)/.config/Code/CachedExtensions"
+                    "$(get_user_home)/.config/Code/logs"
+                )
+            fi
+
+            # Calculate total size
+            local total_size=0
+            local dirs_to_delete=()
+            for cache_path in "${cache_paths[@]}"; do
+                if [[ -e "$cache_path" ]]; then
+                    dirs_to_delete+=("$cache_path")
+                    if command -v du >/dev/null 2>&1; then
+                        local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                        if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                            total_size=$((total_size + dir_size * 1024))
+                        fi
+                    fi
+                fi
+            done
+
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then
+                log_info "No VS Code cache found"
+                return 0
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete VS Code cache"
+                print_info "Locations: ${#dirs_to_delete[@]} directories"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete VS Code cache:"
+                print_warning "  - Extension cache and cached data"
+                print_warning "  - Log files"
+                print_warning "  - Settings and extensions will NOT be deleted"
+                print_warning ""
+
+                if ! confirm "Delete VS Code cache? (y/N)" "N"; then
+                    log_info "User cancelled VS Code cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting VS Code cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting ${#dirs_to_delete[@]} VS Code cache location(s)..." >&2
+            fi
+
+            local deleted=0
+            local failed=0
+            for dir in "${dirs_to_delete[@]}"; do
+                if rm -rf "$dir" 2>/dev/null; then
+                    deleted=$((deleted + 1))
+                    log_debug "Deleted: $dir"
+                else
+                    failed=$((failed + 1))
+                    log_warn "Failed to delete: $dir"
+                fi
+            done
+
+            log_success "Deleted $deleted VS Code cache locations"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ VS Code cache cleaned ($size_formatted)" >&2
+            fi
+            [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
+            return 0
+            ;;
+        nvm_cache)
+            log_info "Cleaning NVM cache..."
+
+            local cache_path="$(get_user_home)/.nvm"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No NVM installation found"
+                return 0
+            fi
+
+            # Only clean cache directories, not the entire .nvm (which contains installed versions)
+            local cache_dirs=(
+                "$(get_user_home)/.nvm/.cache"
+            )
+
+            # Calculate total size
+            local total_size=0
+            local dirs_to_delete=()
+            for cache_dir in "${cache_dirs[@]}"; do
+                if [[ -e "$cache_dir" ]]; then
+                    dirs_to_delete+=("$cache_dir")
+                    if command -v du >/dev/null 2>&1; then
+                        local dir_size=$(du -sk "$cache_dir" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                        if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                            total_size=$((total_size + dir_size * 1024))
+                        fi
+                    fi
+                fi
+            done
+
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then
+                log_info "No NVM cache found"
+                return 0
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete NVM cache"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete NVM cache:"
+                print_warning "  - Only cache files will be deleted"
+                print_warning "  - Installed Node.js versions will NOT be deleted"
+                print_warning ""
+
+                if ! confirm "Delete NVM cache? (y/N)" "N"; then
+                    log_info "User cancelled NVM cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting NVM cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting NVM cache..." >&2
+            fi
+
+            local deleted=0
+            local failed=0
+            for dir in "${dirs_to_delete[@]}"; do
+                if rm -rf "$dir" 2>/dev/null; then
+                    deleted=$((deleted + 1))
+                    log_debug "Deleted: $dir"
+                else
+                    failed=$((failed + 1))
+                    log_warn "Failed to delete: $dir"
+                fi
+            done
+
+            log_success "Deleted $deleted NVM cache locations"
+            if [[ "$QUIET" != "true" ]] && [[ $deleted -gt 0 ]]; then
+                echo "  ✓ NVM cache cleaned ($size_formatted)" >&2
+            fi
+            [[ $failed -gt 0 ]] && log_warn "$failed locations could not be deleted"
+            return 0
+            ;;
+        cocoapods_cache)
+            if ! is_macos; then
+                log_warn "CocoaPods cache cleanup is only available on macOS"
+                return 1
+            fi
+
+            log_info "Cleaning CocoaPods cache..."
+
+            local cache_path="$(get_user_home)/.cocoapods"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No CocoaPods cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete CocoaPods cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete CocoaPods cache:"
+                print_warning "  - Downloaded pods will be removed"
+                print_warning "  - They will be re-downloaded on next pod install"
+                print_warning ""
+
+                if ! confirm "Delete CocoaPods cache? (y/N)" "N"; then
+                    log_info "User cancelled CocoaPods cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting CocoaPods cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting CocoaPods cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted CocoaPods cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ CocoaPods cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete CocoaPods cache"
+                return 1
+            fi
+
+            return 0
+            ;;
+        yarn_cache)
+            log_info "Cleaning Yarn cache..."
+
+            local cache_path="$(get_user_home)/.yarn/cache"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Yarn cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Yarn cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Yarn cache:"
+                print_warning "  - Downloaded packages will be removed"
+                print_warning "  - They will be re-downloaded on next yarn install"
+                print_warning ""
+
+                if ! confirm "Delete Yarn cache? (y/N)" "N"; then
+                    log_info "User cancelled Yarn cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Yarn cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Yarn cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Yarn cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Yarn cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Yarn cache"
+                return 1
+            fi
+
+            return 0
+            ;;
+        pip_cache)
+            log_info "Cleaning pip cache..."
+
+            local cache_path=""
+            if is_macos; then
+                cache_path="$(get_user_home)/Library/Caches/pip"
+            else
+                cache_path="$(get_user_home)/.cache/pip"
+            fi
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No pip cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete pip cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete pip cache:"
+                print_warning "  - Downloaded Python packages will be removed"
+                print_warning "  - They will be re-downloaded on next pip install"
+                print_warning ""
+
+                if ! confirm "Delete pip cache? (y/N)" "N"; then
+                    log_info "User cancelled pip cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting pip cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting pip cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted pip cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Pip cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete pip cache"
+                return 1
+            fi
+
+            return 0
+            ;;
+        gem_cache)
+            log_info "Cleaning Ruby gem cache..."
+
+            local cache_path="$(get_user_home)/.gem/cache"
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Ruby gem cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Ruby gem cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Ruby gem cache:"
+                print_warning "  - Downloaded gems will be removed"
+                print_warning "  - They will be re-downloaded on next gem install"
+                print_warning ""
+
+                if ! confirm "Delete Ruby gem cache? (y/N)" "N"; then
+                    log_info "User cancelled Ruby gem cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Ruby gem cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Ruby gem cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Ruby gem cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Ruby gem cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Ruby gem cache"
+                return 1
+            fi
+
+            return 0
+            ;;
+        homebrew_cache)
+            if ! is_macos; then
+                log_warn "Homebrew cache cleanup is only available on macOS"
+                return 1
+            fi
+
+            log_info "Cleaning Homebrew cache..."
+
+            local cache_path=""
+            if command -v brew >/dev/null 2>&1; then
+                cache_path=$(brew --cache 2>/dev/null || echo "")
+            fi
+
+            if [[ -z "$cache_path" ]]; then
+                cache_path="$(get_user_home)/Library/Caches/Homebrew"
+            fi
+
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Homebrew cache found"
+                return 0
+            fi
+
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Homebrew cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete Homebrew cache:"
+                print_warning "  - Downloaded packages will be removed"
+                print_warning "  - They will be re-downloaded on next brew install"
+                print_warning ""
+
+                if ! confirm "Delete Homebrew cache? (y/N)" "N"; then
+                    log_info "User cancelled Homebrew cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Homebrew cache ($size_formatted)"
+            fi
+
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Homebrew cache..." >&2
+            fi
+
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Homebrew cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Homebrew cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Homebrew cache"
+                return 1
+            fi
+
             return 0
             ;;
     esac
