@@ -1,0 +1,7 @@
+# Blacklist - Paths that will ALWAYS be deleted in aggressive mode
+# One path per line (supports wildcards)
+# Lines starting with # are comments
+
+# Always remove these in aggressive mode
+Library/Caches/com.company.oldapp
+Library/Application Support/OldApp

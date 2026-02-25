@@ -104,6 +104,14 @@ parse_arguments() {
                 MIN_AGE_DAYS="${1#*=}"
                 shift
                 ;;
+            --mode)
+                CLEANUP_MODE="$2"
+                shift 2
+                ;;
+            --mode=*)
+                CLEANUP_MODE="${1#*=}"
+                shift
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -115,6 +123,12 @@ parse_arguments() {
                 ;;
         esac
     done
+    
+    # Validate cleanup mode
+    if [[ "$CLEANUP_MODE" != "safe" ]] && [[ "$CLEANUP_MODE" != "moderate" ]] && [[ "$CLEANUP_MODE" != "aggressive" ]]; then
+        print_error "Invalid cleanup mode: $CLEANUP_MODE (must be: safe, moderate, or aggressive)"
+        exit 1
+    fi
 
     # Validate MIN_AGE_DAYS
     if ! [[ "$MIN_AGE_DAYS" =~ ^[0-9]+$ ]]; then
@@ -144,7 +158,13 @@ Options:
     --force, -f            Skip confirmation prompts
     --all-users            Clean files for ALL users on the system (requires sudo)
     --min-age=N            Only clean files older than N days (default: 0)
+    --mode=MODE            Cleanup mode: safe, moderate, or aggressive (default: safe)
     -h, --help             Show this help message
+
+Cleanup Modes:
+    safe (default)         Only safe caches and temporary files
+    moderate               + Application Support heavy, Containers, .NET caches
+    aggressive             + Full IDE removal, language environments, large directories
 
 Description:
     Cleans up disk space by removing unnecessary files from:
@@ -152,13 +172,13 @@ Description:
     - Logs
     - Temporary files
     - System trash (Trash/Lixeira)
-    - Downloads (if --min-age specified)
     - Xcode (derived data, archives, device support, simulator caches)
     - Android Studio caches
     - Gradle caches
     - React Native caches (Metro, Watchman, Haste)
     - Node modules cache
     - Docker volumes
+    - And more (depending on mode)
 
 User Scope:
     By default, only the current user's files are cleaned.
@@ -381,6 +401,66 @@ select_categories_to_clean() {
             homebrew_cache)
                 category_display="Homebrew Cache"
                 ;;
+            xcode_app)
+                category_display="Xcode.app (AGGRESSIVE)"
+                ;;
+            xcode_developer_full)
+                category_display="Xcode Developer (Full)"
+                ;;
+            xcode_simulator_full)
+                category_display="iOS Simulator (Full)"
+                ;;
+            xcode_command_line_tools)
+                category_display="Command Line Tools"
+                ;;
+            android_studio_app)
+                category_display="Android Studio.app (AGGRESSIVE)"
+                ;;
+            android_library)
+                category_display="Android Library"
+                ;;
+            android_application_support)
+                category_display="Android Studio App Support"
+                ;;
+            application_support_google)
+                category_display="Google App Support"
+                ;;
+            application_support_cursor)
+                category_display="Cursor App Support"
+                ;;
+            application_support_wallpaper)
+                category_display="macOS Wallpaper"
+                ;;
+            containers_cleanup)
+                category_display="Orphaned Containers"
+                ;;
+            nuget_cache)
+                category_display="NuGet Cache (.NET)"
+                ;;
+            dotnet_cache)
+                category_display=".NET Cache"
+                ;;
+            homebrew_cleanup)
+                category_display="Homebrew Cleanup"
+                ;;
+            gradle_full)
+                category_display="Gradle (Full)"
+                ;;
+            yarn_full)
+                category_display="Yarn (Full)"
+                ;;
+            nvm_full)
+                category_display="NVM (Full - All Node Versions)"
+                ;;
+            docker_full)
+                category_display="Docker (Full)"
+                ;;
+            large_directories)
+                category_display="Large Directories (>1GB)"
+                ;;
+            dev_directory)
+                category_display="dev Directory (AGGRESSIVE)"
+                ;;
             *)
                 category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
                 ;;
@@ -411,6 +491,17 @@ main() {
     print_info "=============================================="
     print_info ""
 
+    # Show cleanup mode
+    print_info "Cleanup Mode: $CLEANUP_MODE"
+    if is_safe_mode; then
+        print_info "  → Safe mode: Only caches and temporary files"
+    elif is_moderate_mode; then
+        print_info "  → Moderate mode: + Application Support, Containers, .NET"
+    elif is_aggressive_mode; then
+        print_warning "  → Aggressive mode: + Full IDE removal, language environments, large directories"
+    fi
+    print_info ""
+
     if is_dry_run; then
         print_warning "DRY-RUN MODE: No files will be deleted"
         print_info ""
@@ -420,6 +511,7 @@ main() {
         print_warning "FORCE MODE: Confirmations disabled"
         print_info ""
     fi
+    
 
     # Note: Use analyze-disk.sh to preview what will be cleaned
     if ! is_dry_run && [[ "$FORCE" != "true" ]]; then

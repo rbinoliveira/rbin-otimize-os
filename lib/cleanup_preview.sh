@@ -25,6 +25,19 @@ if [[ -z "${COMMON_SH_LOADED:-}" ]]; then
     fi
 fi
 
+# Ensure cleanup mode functions are available (fallback if not loaded)
+if ! command -v is_safe_mode >/dev/null 2>&1; then
+    is_safe_mode() {
+        [[ "${CLEANUP_MODE:-safe}" == "safe" ]]
+    }
+    is_moderate_mode() {
+        [[ "${CLEANUP_MODE:-safe}" == "moderate" ]]
+    }
+    is_aggressive_mode() {
+        [[ "${CLEANUP_MODE:-safe}" == "aggressive" ]]
+    }
+fi
+
 # Source disk_analysis.sh if available
 if [[ -z "${DISK_ANALYSIS_SH_LOADED:-}" ]]; then
     _cleanup_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,9 +59,23 @@ get_user_home() {
 # ============ Cleanup Category Functions ============
 
 get_cleanup_categories() {
+    local base_categories="caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache cocoapods_cache yarn_cache pip_cache gem_cache homebrew_cache"
+    
+    # Add moderate mode categories
+    local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
+    
+    # Add aggressive mode categories
+    local aggressive_categories="xcode_app xcode_developer_full xcode_simulator_full xcode_command_line_tools android_studio_app android_library android_application_support gradle_full yarn_full nvm_full docker_full large_directories dev_directory"
+    
     if is_macos; then
-        # Removed 'downloads' - too dangerous, may contain important user files
-        echo "caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache cocoapods_cache yarn_cache pip_cache gem_cache homebrew_cache"
+        if is_aggressive_mode; then
+            echo "${base_categories} ${moderate_categories} ${aggressive_categories}"
+        elif is_moderate_mode; then
+            echo "${base_categories} ${moderate_categories}"
+        else
+            # Safe mode - only base categories
+            echo "$base_categories"
+        fi
     elif is_linux; then
         echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
     else
@@ -844,6 +871,350 @@ scan_cleanup_category() {
             echo "${category}|${cache_path}|${file_count}|${total_size}"
             return 0
             ;;
+        # New categories for scan
+        nuget_cache)
+            local cache_path="$(get_user_home)/.nuget"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        dotnet_cache)
+            local cache_path="$(get_user_home)/.dotnet"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        application_support_google)
+            local path="$(get_user_home)/Library/Application Support/Google"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        application_support_cursor)
+            local path="$(get_user_home)/Library/Application Support/Cursor"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        application_support_wallpaper)
+            local path="$(get_user_home)/Library/Application Support/com.apple.wallpaper"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        containers_cleanup)
+            local containers_dir="$(get_user_home)/Library/Containers"
+            local orphaned_count=0
+            local total_size=0
+
+            if [[ -d "$containers_dir" ]]; then
+                while IFS= read -r container; do
+                    [[ -z "$container" ]] || [[ ! -d "$container" ]] && continue
+                    local bundle_id=$(basename "$container")
+                    local app_found=false
+                    
+                    if [[ -d "/Applications/${bundle_id}.app" ]]; then
+                        continue
+                    fi
+                    
+                    orphaned_count=$((orphaned_count + 1))
+                    if command -v du >/dev/null 2>&1; then
+                        local dir_size=$(du -sk "$container" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                        if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                            total_size=$((total_size + dir_size * 1024))
+                        fi
+                    fi
+                done < <(find "$containers_dir" -maxdepth 1 -type d ! -path "$containers_dir" 2>/dev/null)
+            fi
+
+            echo "${category}|Orphaned containers|${orphaned_count}|${total_size}"
+            return 0
+            ;;
+        homebrew_cleanup)
+            echo "${category}|Homebrew cleanup command|0|0"
+            return 0
+            ;;
+        xcode_app)
+            if ! is_macos; then
+                return 0
+            fi
+            local app_path="/Applications/Xcode.app"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$app_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$app_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size / 100))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${app_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        android_studio_app)
+            if ! is_macos; then
+                return 0
+            fi
+            local app_path="/Applications/Android Studio.app"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$app_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$app_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size / 100))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${app_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        android_library)
+            local path="$(get_user_home)/Library/Android"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        android_application_support)
+            local base_path="$(get_user_home)/Library/Application Support/Google"
+            local total_size=0
+            local file_count=0
+
+            while IFS= read -r dir; do
+                [[ -n "$dir" ]] && [[ -d "$dir" ]] || continue
+                if command -v du >/dev/null 2>&1; then
+                    local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                    if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                        total_size=$((total_size + dir_size * 1024))
+                        file_count=$((file_count + dir_size * 20))
+                    fi
+                fi
+            done < <(find "$base_path" -maxdepth 1 -name "AndroidStudio*" -type d 2>/dev/null)
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|Android Studio Application Support|${file_count}|${total_size}"
+            return 0
+            ;;
+        gradle_full)
+            local cache_path="$(get_user_home)/.gradle"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        yarn_full)
+            local cache_path="$(get_user_home)/.yarn"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        nvm_full)
+            local cache_path="$(get_user_home)/.nvm"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        docker_full)
+            local cache_path="$(get_user_home)/.docker"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$cache_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${cache_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        large_directories)
+            echo "${category}|Scan mode|0|0"
+            return 0
+            ;;
+        dev_directory)
+            local dev_path="$(get_user_home)/dev"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$dev_path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$dev_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${dev_path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        xcode_developer_full)
+            if ! is_macos; then
+                return 0
+            fi
+            local path="$(get_user_home)/Library/Developer/Xcode"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        xcode_simulator_full)
+            if ! is_macos; then
+                return 0
+            fi
+            local path="$(get_user_home)/Library/Developer/CoreSimulator"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
+        xcode_command_line_tools)
+            if ! is_macos; then
+                return 0
+            fi
+            local path="/Library/Developer/CommandLineTools"
+            local total_size=0
+            local file_count=0
+
+            if [[ -e "$path" ]] && command -v du >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+                local dir_size=$(sudo du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$((dir_size * 1024))
+                    file_count=$((dir_size * 20))
+                fi
+            fi
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            return 0
+            ;;
     esac
 
     if command -v get_category_path >/dev/null 2>&1; then
@@ -1174,6 +1545,19 @@ delete_category_files() {
     if is_dry_run && [[ "$category" != "browser_trash" ]]; then
         log_info "[DRY-RUN] Would delete files from category: $category"
         return 0
+    fi
+
+    # Check whitelist/blacklist
+    local path=""
+    if command -v get_category_path >/dev/null 2>&1; then
+        path=$(get_category_path "$category")
+    fi
+    
+    if [[ -n "$path" ]] && command -v should_skip_path >/dev/null 2>&1; then
+        if should_skip_path "$path"; then
+            log_info "Skipping whitelisted/protected path: $path"
+            return 0
+        fi
     fi
 
     # Show initial progress message (visible to user)
@@ -2614,6 +2998,1438 @@ delete_category_files() {
                 return 1
             fi
 
+            return 0
+            ;;
+        # Android Studio App removal (AGGRESSIVE MODE ONLY)
+        android_studio_app)
+            if ! is_aggressive_mode; then
+                log_warn "android_studio_app cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            if ! is_macos; then
+                return 1
+            fi
+            
+            log_info "Removing Android Studio.app..."
+            
+            local app_path="/Applications/Android Studio.app"
+            
+            if [[ ! -e "$app_path" ]]; then
+                log_info "Android Studio.app not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$app_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            # Backup disabled by default
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "⚠ CRITICAL: About to DELETE Android Studio.app"
+                print_info "Location: $app_path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "This will PERMANENTLY DELETE Android Studio!"
+                print_warning ""
+                
+                if ! confirm "DELETE Android Studio.app? (type 'DELETE' to confirm)" "N"; then
+                    log_info "User cancelled Android Studio.app deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Android Studio.app ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Android Studio.app..." >&2
+            fi
+            
+            if sudo rm -rf "$app_path" 2>/dev/null; then
+                log_success "Deleted Android Studio.app"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Android Studio.app removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Android Studio.app (may require sudo)"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        android_library)
+            log_info "Cleaning Android Library directory..."
+            
+            local path="$(get_user_home)/Library/Android"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "Android Library directory not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Android Library directory"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This may contain Android SDKs"
+                print_warning ""
+                
+                if ! confirm "Delete Android Library directory? (y/N)" "N"; then
+                    log_info "User cancelled Android Library deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Android Library directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Android Library directory..." >&2
+            fi
+            
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Android Library directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Android Library directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Android Library directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        android_application_support)
+            log_info "Cleaning Android Studio Application Support..."
+            
+            local base_path="$(get_user_home)/Library/Application Support/Google"
+            local paths_to_delete=()
+            
+            # Find AndroidStudio* directories
+            while IFS= read -r dir; do
+                [[ -n "$dir" ]] && [[ -d "$dir" ]] && paths_to_delete+=("$dir")
+            done < <(find "$base_path" -maxdepth 1 -name "AndroidStudio*" -type d 2>/dev/null)
+            
+            if [[ ${#paths_to_delete[@]} -eq 0 ]]; then
+                log_info "No Android Studio Application Support found"
+                return 0
+            fi
+            
+            # Calculate total size
+            local total_size=0
+            for path in "${paths_to_delete[@]}"; do
+                if command -v du >/dev/null 2>&1; then
+                    local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                    if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                        total_size=$((total_size + dir_size * 1024))
+                    fi
+                fi
+            done
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Android Studio Application Support"
+                print_info "Found ${#paths_to_delete[@]} directory(ies)"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                
+                if ! confirm "Delete Android Studio Application Support? (y/N)" "N"; then
+                    log_info "User cancelled Android Studio Application Support deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Android Studio Application Support ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting ${#paths_to_delete[@]} Android Studio Application Support directory(ies)..." >&2
+            fi
+            
+            local deleted=0
+            local failed=0
+            for path in "${paths_to_delete[@]}"; do
+                if rm -rf "$path" 2>/dev/null; then
+                    deleted=$((deleted + 1))
+                else
+                    failed=$((failed + 1))
+                fi
+            done
+            
+            log_success "Deleted $deleted Android Studio Application Support directory(ies)"
+            if [[ "$QUIET" != "true" ]] && [[ $deleted -gt 0 ]]; then
+                echo "  ✓ Android Studio Application Support removed ($size_formatted)" >&2
+            fi
+            [[ $failed -gt 0 ]] && log_warn "$failed directory(ies) could not be deleted"
+            return 0
+            ;;
+        # Application Support heavy categories
+        application_support_google)
+            log_info "Cleaning Google Application Support..."
+            
+            local path="$(get_user_home)/Library/Application Support/Google"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "Google Application Support not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Google Application Support"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This may contain Chrome/Drive data"
+                print_warning ""
+                
+                if ! confirm "Delete Google Application Support? (y/N)" "N"; then
+                    log_info "User cancelled Google Application Support deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Google Application Support ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Google Application Support..." >&2
+            fi
+            
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Google Application Support"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Google Application Support removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Google Application Support"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        application_support_cursor)
+            log_info "Cleaning Cursor Application Support..."
+            
+            local path="$(get_user_home)/Library/Application Support/Cursor"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "Cursor Application Support not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Cursor Application Support"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This may contain Cursor settings/extensions"
+                print_warning ""
+                
+                if ! confirm "Delete Cursor Application Support? (y/N)" "N"; then
+                    log_info "User cancelled Cursor Application Support deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Cursor Application Support ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Cursor Application Support..." >&2
+            fi
+            
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Cursor Application Support"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Cursor Application Support removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Cursor Application Support"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        application_support_wallpaper)
+            log_info "Cleaning macOS Wallpaper Application Support..."
+            
+            local path="$(get_user_home)/Library/Application Support/com.apple.wallpaper"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "Wallpaper Application Support not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete macOS Wallpaper Application Support"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: Wallpapers can be re-downloaded"
+                print_warning ""
+                
+                if ! confirm "Delete Wallpaper Application Support? (y/N)" "N"; then
+                    log_info "User cancelled Wallpaper Application Support deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Wallpaper Application Support ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Wallpaper Application Support..." >&2
+            fi
+            
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Wallpaper Application Support"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Wallpaper Application Support removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Wallpaper Application Support"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        # Containers cleanup
+        containers_cleanup)
+            log_info "Cleaning orphaned Containers..."
+            
+            local containers_dir="$(get_user_home)/Library/Containers"
+            
+            if [[ ! -d "$containers_dir" ]]; then
+                log_info "Containers directory not found"
+                return 0
+            fi
+            
+            # Find containers for deleted apps
+            local orphaned_containers=()
+            while IFS= read -r container; do
+                [[ -z "$container" ]] || [[ ! -d "$container" ]] && continue
+                
+                local bundle_id=$(basename "$container")
+                
+                # Check if app still exists
+                local app_found=false
+                if [[ -d "/Applications/${bundle_id}.app" ]]; then
+                    app_found=true
+                else
+                    # Check by bundle ID pattern
+                    while IFS= read -r app_path; do
+                        if [[ -f "${app_path}/Contents/Info.plist" ]]; then
+                            local app_bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "${app_path}/Contents/Info.plist" 2>/dev/null)
+                            if [[ "$app_bundle_id" == "$bundle_id" ]]; then
+                                app_found=true
+                                break
+                            fi
+                        fi
+                    done < <(find /Applications -maxdepth 2 -name "*.app" -type d 2>/dev/null)
+                fi
+                
+                if [[ "$app_found" == "false" ]]; then
+                    orphaned_containers+=("$container")
+                fi
+            done < <(find "$containers_dir" -maxdepth 1 -type d ! -path "$containers_dir" 2>/dev/null)
+            
+            if [[ ${#orphaned_containers[@]} -eq 0 ]]; then
+                log_info "No orphaned containers found"
+                return 0
+            fi
+            
+            # Calculate total size
+            local total_size=0
+            for container in "${orphaned_containers[@]}"; do
+                if command -v du >/dev/null 2>&1; then
+                    local dir_size=$(du -sk "$container" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                    if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                        total_size=$((total_size + dir_size * 1024))
+                    fi
+                fi
+            done
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "Found ${#orphaned_containers[@]} orphaned container(s):"
+                for container in "${orphaned_containers[@]}"; do
+                    local bundle_id=$(basename "$container")
+                    local container_size=$(du -sh "$container" 2>/dev/null | awk '{print $1}' || echo "unknown")
+                    print_info "  - $bundle_id ($container_size)"
+                done
+                print_info ""
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: These are containers for deleted apps"
+                print_warning ""
+                
+                if ! confirm "Delete orphaned containers? (y/N)" "N"; then
+                    log_info "User cancelled containers cleanup"
+                    return 1
+                fi
+            else
+                log_info "Deleting ${#orphaned_containers[@]} orphaned container(s) ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting ${#orphaned_containers[@]} orphaned container(s)..." >&2
+            fi
+            
+            local deleted=0
+            local failed=0
+            for container in "${orphaned_containers[@]}"; do
+                if rm -rf "$container" 2>/dev/null; then
+                    deleted=$((deleted + 1))
+                    log_debug "Deleted: $container"
+                else
+                    failed=$((failed + 1))
+                    log_warn "Failed to delete: $container"
+                fi
+            done
+            
+            log_success "Deleted $deleted orphaned container(s)"
+            if [[ "$QUIET" != "true" ]] && [[ $deleted -gt 0 ]]; then
+                echo "  ✓ Orphaned containers removed ($size_formatted)" >&2
+            fi
+            [[ $failed -gt 0 ]] && log_warn "$failed container(s) could not be deleted"
+            return 0
+            ;;
+        # .NET categories
+        nuget_cache)
+            log_info "Cleaning NuGet cache..."
+            
+            local cache_path="$(get_user_home)/.nuget"
+            
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No NuGet cache found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete NuGet cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete NuGet packages cache"
+                print_warning "  - They will be re-downloaded on next restore"
+                print_warning ""
+                
+                if ! confirm "Delete NuGet cache? (y/N)" "N"; then
+                    log_info "User cancelled NuGet cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting NuGet cache ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting NuGet cache..." >&2
+            fi
+            
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted NuGet cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ NuGet cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete NuGet cache"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        dotnet_cache)
+            log_info "Cleaning .NET cache..."
+            
+            local cache_path="$(get_user_home)/.dotnet"
+            
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No .NET cache found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete .NET cache"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete .NET SDK cache"
+                print_warning "  - They will be re-downloaded on next use"
+                print_warning ""
+                
+                if ! confirm "Delete .NET cache? (y/N)" "N"; then
+                    log_info "User cancelled .NET cache deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting .NET cache ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting .NET cache..." >&2
+            fi
+            
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted .NET cache"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ .NET cache cleaned ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete .NET cache"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        # Homebrew cleanup
+        homebrew_cleanup)
+            if ! is_macos; then
+                log_warn "Homebrew cleanup is only available on macOS"
+                return 1
+            fi
+            
+            if ! command -v brew >/dev/null 2>&1; then
+                log_warn "Homebrew not found"
+                return 1
+            fi
+            
+            log_info "Running Homebrew cleanup..."
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to run: brew cleanup -s"
+                print_warning ""
+                print_warning "⚠ WARNING: This will remove old Homebrew downloads"
+                print_warning ""
+                
+                if ! confirm "Run brew cleanup? (y/N)" "N"; then
+                    log_info "User cancelled Homebrew cleanup"
+                    return 1
+                fi
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Running brew cleanup -s..." >&2
+            fi
+            
+            # Run brew cleanup -s
+            if brew cleanup -s 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+                log_success "Homebrew cleanup completed"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Homebrew cleanup completed" >&2
+                fi
+            else
+                log_warn "Homebrew cleanup failed"
+                return 1
+            fi
+            
+            # Optional: Find unused formulas (aggressive mode only)
+            if is_aggressive_mode; then
+                log_info "Finding unused Homebrew formulas..."
+                
+                if command -v brew >/dev/null 2>&1; then
+                    local unused_formulas=$(brew leaves 2>/dev/null | while read formula; do
+                        brew uses --installed "$formula" 2>/dev/null | grep -q . || echo "$formula"
+                    done)
+                    
+                    if [[ -n "$unused_formulas" ]]; then
+                        print_warning "Found potentially unused formulas:"
+                        echo "$unused_formulas" | while read formula; do
+                            print_info "  - $formula"
+                        done
+                        print_warning ""
+                        
+                        if ! confirm "Remove unused formulas? (y/N)" "N"; then
+                            log_info "User skipped unused formulas removal"
+                        else
+                            echo "$unused_formulas" | while read formula; do
+                                brew uninstall "$formula" 2>/dev/null && log_debug "Uninstalled: $formula"
+                            done
+                        fi
+                    fi
+                fi
+            fi
+            
+            return 0
+            ;;
+        # Aggressive language environments
+        gradle_full)
+            if ! is_aggressive_mode; then
+                log_warn "gradle_full cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            log_info "Cleaning Gradle directory (full)..."
+            
+            local cache_path="$(get_user_home)/.gradle"
+            
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Gradle directory found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete entire Gradle directory"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete ALL Gradle data:"
+                print_warning "  - Caches, wrapper, daemon, etc."
+                print_warning ""
+                
+                if ! confirm "Delete Gradle directory? (y/N)" "N"; then
+                    log_info "User cancelled Gradle directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Gradle directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Gradle directory..." >&2
+            fi
+            
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Gradle directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Gradle directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Gradle directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        yarn_full)
+            if ! is_aggressive_mode; then
+                log_warn "yarn_full cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            log_info "Cleaning Yarn directory (full)..."
+            
+            local cache_path="$(get_user_home)/.yarn"
+            
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Yarn directory found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete entire Yarn directory"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete ALL Yarn data"
+                print_warning ""
+                
+                if ! confirm "Delete Yarn directory? (y/N)" "N"; then
+                    log_info "User cancelled Yarn directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Yarn directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Yarn directory..." >&2
+            fi
+            
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Yarn directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Yarn directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Yarn directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        nvm_full)
+            if ! is_aggressive_mode; then
+                log_warn "nvm_full cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            log_info "Cleaning NVM directory (full - removes all Node.js versions)..."
+            
+            local cache_path="$(get_user_home)/.nvm"
+            
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No NVM directory found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "⚠ CRITICAL: About to delete entire NVM directory"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete ALL Node.js versions!"
+                print_warning "  - All installed Node.js versions will be removed"
+                print_warning "  - You will need to reinstall Node.js versions"
+                print_warning ""
+                
+                if ! confirm "DELETE NVM directory? (type 'DELETE' to confirm)" "N"; then
+                    log_info "User cancelled NVM directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting NVM directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting NVM directory..." >&2
+            fi
+            
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted NVM directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ NVM directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete NVM directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        docker_full)
+            if ! is_aggressive_mode; then
+                log_warn "docker_full cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            log_info "Cleaning Docker directory (full)..."
+            
+            local cache_path="$(get_user_home)/.docker"
+            
+            if [[ ! -e "$cache_path" ]]; then
+                log_info "No Docker directory found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$cache_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete entire Docker directory"
+                print_info "Location: $cache_path"
+                print_info "Total size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete ALL Docker data"
+                print_warning ""
+                
+                if ! confirm "Delete Docker directory? (y/N)" "N"; then
+                    log_info "User cancelled Docker directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Docker directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Docker directory..." >&2
+            fi
+            
+            if rm -rf "$cache_path" 2>/dev/null; then
+                log_success "Deleted Docker directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Docker directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Docker directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        # Large directories and dev
+        large_directories)
+            log_info "Finding large directories (>1GB)..."
+            
+            local threshold_gb="${LARGE_DIR_THRESHOLD:-1}"
+            local threshold_bytes=$((threshold_gb * 1024 * 1024 * 1024))
+            local large_dirs=()
+            
+            # Find large directories in home
+            while IFS= read -r dir; do
+                [[ -z "$dir" ]] || [[ ! -d "$dir" ]] && continue
+                
+                # Skip protected directories
+                local basename_dir=$(basename "$dir")
+                if [[ "$basename_dir" == ".git" ]] || \
+                   [[ "$basename_dir" == ".claude" ]] || \
+                   [[ "$basename_dir" == ".cursor" ]] || \
+                   [[ "$basename_dir" == ".task-flow" ]] || \
+                   [[ "$basename_dir" == ".ssh" ]] || \
+                   [[ "$basename_dir" == ".gnupg" ]]; then
+                    continue
+                fi
+                
+                local dir_size=$(du -sk "$dir" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    local dir_size_bytes=$((dir_size * 1024))
+                    if [[ $dir_size_bytes -ge $threshold_bytes ]]; then
+                        large_dirs+=("$dir|$dir_size_bytes")
+                    fi
+                fi
+            done < <(find "$(get_user_home)" -maxdepth 2 -type d ! -path "*/\.*" 2>/dev/null)
+            
+            if [[ ${#large_dirs[@]} -eq 0 ]]; then
+                log_info "No large directories found (>${threshold_gb}GB)"
+                return 0
+            fi
+            
+            # Show list
+            print_warning "Found ${#large_dirs[@]} large directory(ies) (>${threshold_gb}GB):"
+            for dir_info in "${large_dirs[@]}"; do
+                IFS='|' read -r dir size_bytes <<< "$dir_info"
+                local size_mb=$((size_bytes / 1024 / 1024))
+                local size_display=""
+                if [[ $size_mb -ge 1024 ]]; then
+                    local size_gb=$(awk "BEGIN {printf \"%.2f\", $size_bytes / 1073741824}")
+                    size_display="${size_gb} GB"
+                else
+                    size_display="${size_mb} MB"
+                fi
+                print_info "  - $dir ($size_display)"
+            done
+            print_warning ""
+            
+            if ! confirm "Delete these large directories? (y/N)" "N"; then
+                log_info "User cancelled large directories deletion"
+                return 1
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting ${#large_dirs[@]} large directory(ies)..." >&2
+            fi
+            
+            local deleted=0
+            local failed=0
+            for dir_info in "${large_dirs[@]}"; do
+                IFS='|' read -r dir size_bytes <<< "$dir_info"
+                
+                # Backup disabled by default
+                
+                if rm -rf "$dir" 2>/dev/null; then
+                    deleted=$((deleted + 1))
+                    log_debug "Deleted: $dir"
+                else
+                    failed=$((failed + 1))
+                    log_warn "Failed to delete: $dir"
+                fi
+            done
+            
+            log_success "Deleted $deleted large directory(ies)"
+            if [[ "$QUIET" != "true" ]] && [[ $deleted -gt 0 ]]; then
+                echo "  ✓ Large directories removed" >&2
+            fi
+            [[ $failed -gt 0 ]] && log_warn "$failed directory(ies) could not be deleted"
+            return 0
+            ;;
+        dev_directory)
+            if ! is_aggressive_mode; then
+                log_warn "dev_directory cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            log_info "Removing dev directory..."
+            
+            local dev_path="$(get_user_home)/dev"
+            
+            if [[ ! -e "$dev_path" ]]; then
+                log_info "dev directory not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$dev_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            # Backup disabled by default
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "⚠ CRITICAL: About to DELETE dev directory"
+                print_info "Location: $dev_path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will DELETE ALL your development projects!"
+                print_warning "  - All code projects will be permanently deleted"
+                print_warning "  - Make sure you have backups/commits"
+                print_warning ""
+                
+                if ! confirm "DELETE dev directory? (type 'DELETE' to confirm)" "N"; then
+                    log_info "User cancelled dev directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting dev directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting dev directory..." >&2
+            fi
+            
+            if rm -rf "$dev_path" 2>/dev/null; then
+                log_success "Deleted dev directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ dev directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete dev directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        # Xcode App removal (AGGRESSIVE MODE ONLY) - moved here to avoid duplicate
+        xcode_app)
+            if ! is_aggressive_mode; then
+                log_warn "xcode_app cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            if ! is_macos; then
+                log_warn "Xcode app cleanup is only available on macOS"
+                return 1
+            fi
+            
+            log_info "Removing Xcode.app..."
+            
+            local app_path="/Applications/Xcode.app"
+            
+            if [[ ! -e "$app_path" ]]; then
+                log_info "Xcode.app not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$app_path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            # Backup disabled by default
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "⚠ CRITICAL: About to DELETE Xcode.app"
+                print_info "Location: $app_path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "This will PERMANENTLY DELETE Xcode from your system!"
+                print_warning "You will need to reinstall from App Store if needed."
+                print_warning ""
+                
+                if ! confirm "DELETE Xcode.app? (type 'DELETE' to confirm)" "N"; then
+                    log_info "User cancelled Xcode.app deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Xcode.app ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Xcode.app..." >&2
+            fi
+            
+            if sudo rm -rf "$app_path" 2>/dev/null; then
+                log_success "Deleted Xcode.app"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Xcode.app removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Xcode.app (may require sudo)"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        xcode_developer_full)
+            if ! is_aggressive_mode; then
+                log_warn "xcode_developer_full cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            if ! is_macos; then
+                return 1
+            fi
+            
+            log_info "Removing Xcode Developer directory..."
+            
+            local path="$(get_user_home)/Library/Developer/Xcode"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "Xcode Developer directory not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            # Backup disabled by default
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete entire Xcode Developer directory"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This includes ALL Xcode data:"
+                print_warning "  - DerivedData, Archives, DeviceSupport"
+                print_warning "  - All Xcode configurations"
+                print_warning ""
+                
+                if ! confirm "Delete Xcode Developer directory? (y/N)" "N"; then
+                    log_info "User cancelled Xcode Developer directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Xcode Developer directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Xcode Developer directory..." >&2
+            fi
+            
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Xcode Developer directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Xcode Developer directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Xcode Developer directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        xcode_simulator_full)
+            if ! is_aggressive_mode; then
+                log_warn "xcode_simulator_full cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            if ! is_macos; then
+                return 1
+            fi
+            
+            log_info "Removing CoreSimulator directory..."
+            
+            local path="$(get_user_home)/Library/Developer/CoreSimulator"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "CoreSimulator directory not found"
+                return 0
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete CoreSimulator directory"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will delete ALL iOS Simulator data"
+                print_warning ""
+                
+                if ! confirm "Delete CoreSimulator directory? (y/N)" "N"; then
+                    log_info "User cancelled CoreSimulator directory deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting CoreSimulator directory ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting CoreSimulator directory..." >&2
+            fi
+            
+            if rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted CoreSimulator directory"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ CoreSimulator directory removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete CoreSimulator directory"
+                return 1
+            fi
+            
+            return 0
+            ;;
+        xcode_command_line_tools)
+            if ! is_aggressive_mode; then
+                log_warn "xcode_command_line_tools cleanup requires aggressive mode"
+                return 1
+            fi
+            
+            if ! is_macos; then
+                return 1
+            fi
+            
+            log_info "Removing Command Line Tools..."
+            
+            local path="/Library/Developer/CommandLineTools"
+            
+            if [[ ! -e "$path" ]]; then
+                log_info "Command Line Tools not found"
+                return 0
+            fi
+            
+            # Check sudo
+            if ! sudo -n true 2>/dev/null; then
+                log_warn "Command Line Tools removal requires sudo"
+                return 1
+            fi
+            
+            # Calculate size
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(sudo du -sk "$path" 2>/dev/null | awk '{print $1}' | head -1 | tr -d '[:space:]')
+                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                    total_size=$(awk "BEGIN {printf \"%.0f\", $dir_size * 1024}" 2>/dev/null || echo "0")
+                fi
+            fi
+            
+            # Format size
+            local size_mb=$((total_size / 1024 / 1024))
+            local size_formatted=""
+            if [[ $size_mb -ge 1024 ]]; then
+                local size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size / 1073741824}")
+                size_formatted="${size_gb} GB"
+            else
+                local size_mb_float=$(awk "BEGIN {printf \"%.2f\", $total_size / 1048576}")
+                size_formatted="${size_mb_float} MB"
+            fi
+            
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Command Line Tools"
+                print_info "Location: $path"
+                print_info "Size: $size_formatted"
+                print_warning ""
+                print_warning "⚠ WARNING: This will remove Command Line Tools"
+                print_warning "  - Can be reinstalled with: xcode-select --install"
+                print_warning ""
+                
+                if ! confirm "Delete Command Line Tools? (y/N)" "N"; then
+                    log_info "User cancelled Command Line Tools deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Command Line Tools ($size_formatted)"
+            fi
+            
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  → Deleting Command Line Tools..." >&2
+            fi
+            
+            if sudo rm -rf "$path" 2>/dev/null; then
+                log_success "Deleted Command Line Tools"
+                if [[ "$QUIET" != "true" ]]; then
+                    echo "  ✓ Command Line Tools removed ($size_formatted)" >&2
+                fi
+            else
+                log_warn "Failed to delete Command Line Tools"
+                return 1
+            fi
+            
             return 0
             ;;
     esac

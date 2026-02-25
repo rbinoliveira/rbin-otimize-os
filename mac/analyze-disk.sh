@@ -94,6 +94,18 @@ parse_arguments() {
                 ITEMS_COUNT="${1#*=}"
                 shift
                 ;;
+            --audit)
+                GENERATE_AUDIT=true
+                shift
+                ;;
+            --mode)
+                CLEANUP_MODE="$2"
+                shift 2
+                ;;
+            --mode=*)
+                CLEANUP_MODE="${1#*=}"
+                shift
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -105,6 +117,12 @@ parse_arguments() {
                 ;;
         esac
     done
+    
+    # Validate cleanup mode if provided
+    if [[ -n "$CLEANUP_MODE" ]] && [[ "$CLEANUP_MODE" != "safe" ]] && [[ "$CLEANUP_MODE" != "moderate" ]] && [[ "$CLEANUP_MODE" != "aggressive" ]]; then
+        print_error "Invalid cleanup mode: $CLEANUP_MODE (must be: safe, moderate, or aggressive)"
+        exit 1
+    fi
 
     # Validate ITEMS_COUNT
     if ! [[ "$ITEMS_COUNT" =~ ^[0-9]+$ ]] || [[ "$ITEMS_COUNT" -lt 1 ]]; then
@@ -124,6 +142,8 @@ Options:
     --verbose, -v          Show detailed output
     --quiet, -q            Suppress non-error output
     --items=N              Show top N items (default: 20)
+    --audit                Generate comprehensive disk audit report
+    --mode=MODE            Analysis mode: safe, moderate, or aggressive (default: safe)
     -h, --help             Show this help message
 
 Description:
@@ -384,6 +404,99 @@ display_cleanup_opportunities() {
     print_info ""
 }
 
+# Generate comprehensive disk audit report
+generate_disk_audit_report() {
+    local report_file="${HOME}/.os-optimize/disk_audit_$(date +%Y%m%d_%H%M%S).txt"
+    local report_dir=$(dirname "$report_file")
+    
+    mkdir -p "$report_dir" 2>/dev/null || true
+    
+    {
+        echo "=========================================="
+        echo "DISK AUDIT REPORT"
+        echo "=========================================="
+        echo "Date: $(date)"
+        echo "User: $(whoami 2>/dev/null || echo 'unknown')"
+        echo "Hostname: $(hostname 2>/dev/null || echo 'unknown')"
+        echo "macOS Version: $(sw_vers -productVersion 2>/dev/null || echo 'unknown')"
+        echo ""
+        echo "=========================================="
+        echo "df -h (Disk Usage)"
+        echo "=========================================="
+        df -h
+        echo ""
+        echo "=========================================="
+        echo "Top 10 Largest Directories in /Users"
+        echo "=========================================="
+        du -sh /Users/* 2>/dev/null | sort -rh | head -10 || echo "Unable to scan /Users"
+        echo ""
+        echo "=========================================="
+        echo "Top 10 Largest Directories in Home"
+        echo "=========================================="
+        du -sh ~/* 2>/dev/null | sort -rh | head -10 || echo "Unable to scan home"
+        echo ""
+        echo "=========================================="
+        echo "Categorized Disk Usage Analysis"
+        echo "=========================================="
+    } > "$report_file" 2>/dev/null || true
+    
+    # Add categorized analysis
+    local categories=$(get_disk_categories)
+    {
+        printf "%-20s %-50s %15s %15s\n" "Category" "Path" "Size" "Files"
+        echo "--------------------------------------------------------------------------------"
+    } >> "$report_file" 2>/dev/null || true
+    
+    for category in $categories; do
+        local path=$(get_category_path "$category")
+        
+        if [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
+            continue
+        fi
+        
+        local result=$(analyze_disk_usage "$path" "$category")
+        if [[ -n "$result" ]]; then
+            IFS='|' read -r cat_name path size size_formatted size_mb file_count dir_count <<< "$result"
+            local size_mb_formatted=$(format_size_mb "$size")
+            printf "%-20s %-50s %15s %15s\n" "$cat_name" "$path" "$size_mb_formatted" "$file_count" >> "$report_file" 2>/dev/null || true
+        fi
+    done
+    
+    {
+        echo ""
+        echo "=========================================="
+        echo "Report saved to: $report_file"
+        echo "=========================================="
+    } >> "$report_file" 2>/dev/null || true
+    
+    echo "$report_file"
+}
+
+# Compare two audit reports
+compare_audit_reports() {
+    local before_file="$1"
+    local after_file="$2"
+    
+    if [[ ! -f "$before_file" ]] || [[ ! -f "$after_file" ]]; then
+        print_error "Both report files are required"
+        return 1
+    fi
+    
+    print_info "Comparing reports:"
+    print_info "  Before: $before_file"
+    print_info "  After:  $after_file"
+    print_info ""
+    
+    # Extract disk usage from reports
+    local before_usage=$(grep -A 20 "df -h" "$before_file" 2>/dev/null | grep -E "^/dev/" | head -1 | awk '{print $4}')
+    local after_usage=$(grep -A 20 "df -h" "$after_file" 2>/dev/null | grep -E "^/dev/" | head -1 | awk '{print $4}')
+    
+    if [[ -n "$before_usage" ]] && [[ -n "$after_usage" ]]; then
+        print_info "Disk space before: $before_usage"
+        print_info "Disk space after:  $after_usage"
+    fi
+}
+
 # Main execution
 main() {
     # Parse arguments
@@ -414,6 +527,16 @@ main() {
 
     # Display cleanup opportunities
     display_cleanup_opportunities
+
+    # Generate audit report if requested
+    if [[ "${GENERATE_AUDIT:-false}" == "true" ]]; then
+        print_info ""
+        print_info "Generating comprehensive disk audit report..."
+        local audit_file=$(generate_disk_audit_report)
+        if [[ -n "$audit_file" ]]; then
+            print_success "Audit report generated: $audit_file"
+        fi
+    fi
 
     # Summary
     print_info "=============================================="

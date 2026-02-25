@@ -39,6 +39,11 @@ fi
 DRY_RUN="${DRY_RUN:-false}"
 AUTO_CONFIRM="${AUTO_CONFIRM:-false}"
 
+# Cleanup mode: safe, moderate, aggressive
+CLEANUP_MODE="${CLEANUP_MODE:-safe}"
+ENABLE_BACKUP="${ENABLE_BACKUP:-false}"
+BACKUP_DIR="${BACKUP_DIR:-${HOME}/.os-optimize/backups}"
+
 # Logging configuration
 LOG_DIR="${HOME}/.os-optimize/logs"
 LOG_FILE=""
@@ -369,6 +374,198 @@ is_macos() {
 
 is_linux() {
     [[ $(get_os_type) == "Linux" ]]
+}
+
+# ============ Cleanup Mode Functions ============
+
+is_safe_mode() {
+    [[ "$CLEANUP_MODE" == "safe" ]]
+}
+
+is_moderate_mode() {
+    [[ "$CLEANUP_MODE" == "moderate" ]]
+}
+
+is_aggressive_mode() {
+    [[ "$CLEANUP_MODE" == "aggressive" ]]
+}
+
+# ============ Backup Functions ============
+
+create_backup_before_cleanup() {
+    local category="$1"
+    shift
+    local paths=("$@")
+    
+    if [[ "$ENABLE_BACKUP" != "true" ]]; then
+        return 0
+    fi
+    
+    if [[ ${#paths[@]} -eq 0 ]]; then
+        return 0
+    fi
+    
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_dir="${BACKUP_DIR}/${timestamp}_${category}"
+    
+    if ! mkdir -p "$backup_dir" 2>/dev/null; then
+        log_warn "Failed to create backup directory: $backup_dir"
+        return 1
+    fi
+    
+    log_info "Creating backup for category: $category"
+    local backed_up=0
+    local failed=0
+    
+    for path in "${paths[@]}"; do
+        [[ -z "$path" ]] && continue
+        
+        if [[ -e "$path" ]]; then
+            local basename_path=$(basename "$path")
+            local backup_path="${backup_dir}/${basename_path}"
+            
+            # Use rsync if available for better performance, otherwise cp
+            if command -v rsync >/dev/null 2>&1; then
+                if rsync -a "$path" "$backup_path" 2>/dev/null; then
+                    backed_up=$((backed_up + 1))
+                    log_debug "Backed up: $path -> $backup_path"
+                else
+                    failed=$((failed + 1))
+                    log_warn "Failed to backup: $path"
+                fi
+            else
+                if cp -R "$path" "$backup_path" 2>/dev/null; then
+                    backed_up=$((backed_up + 1))
+                    log_debug "Backed up: $path -> $backup_path"
+                else
+                    failed=$((failed + 1))
+                    log_warn "Failed to backup: $path"
+                fi
+            fi
+        fi
+    done
+    
+    if [[ $backed_up -gt 0 ]]; then
+        log_success "Backed up $backed_up item(s) to: $backup_dir"
+        echo "$backup_dir"  # Return backup directory path
+    fi
+    
+    [[ $failed -gt 0 ]] && log_warn "$failed item(s) could not be backed up"
+    return 0
+}
+
+list_backups() {
+    if [[ ! -d "$BACKUP_DIR" ]]; then
+        echo "No backups found"
+        return 1
+    fi
+    
+    echo "Available backups:"
+    ls -lh "$BACKUP_DIR" 2>/dev/null | tail -n +2 | awk '{print $9, "(" $5 ")"}'
+}
+
+restore_backup() {
+    local backup_id="$1"
+    local restore_to="${2:-$HOME}"
+    
+    if [[ -z "$backup_id" ]]; then
+        print_error "Backup ID required"
+        return 1
+    fi
+    
+    local backup_path="${BACKUP_DIR}/${backup_id}"
+    
+    if [[ ! -d "$backup_path" ]]; then
+        print_error "Backup not found: $backup_path"
+        return 1
+    fi
+    
+    print_warning "This will restore backup: $backup_id"
+    if ! confirm "Continue? (y/N)" "N"; then
+        return 1
+    fi
+    
+    if cp -R "${backup_path}"/* "$restore_to/" 2>/dev/null; then
+        print_success "Backup restored to: $restore_to"
+        return 0
+    else
+        print_error "Failed to restore backup"
+        return 1
+    fi
+}
+
+# ============ Whitelist/Blacklist Functions ============
+
+WHITELIST_FILE="${HOME}/.os-optimize/whitelist.txt"
+BLACKLIST_FILE="${HOME}/.os-optimize/blacklist.txt"
+
+is_whitelisted() {
+    local path="$1"
+    
+    if [[ ! -f "$WHITELIST_FILE" ]]; then
+        return 1
+    fi
+    
+    while IFS= read -r line; do
+        [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
+        if [[ "$path" == *"$line"* ]]; then
+            return 0
+        fi
+    done < "$WHITELIST_FILE"
+    
+    return 1
+}
+
+is_blacklisted() {
+    local path="$1"
+    
+    if [[ ! -f "$BLACKLIST_FILE" ]]; then
+        return 1
+    fi
+    
+    while IFS= read -r line; do
+        [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
+        if [[ "$path" == *"$line"* ]]; then
+            return 0
+        fi
+    done < "$BLACKLIST_FILE"
+    
+    return 1
+}
+
+should_skip_path() {
+    local path="$1"
+    
+    # Check whitelist first (whitelist takes precedence)
+    if is_whitelisted "$path"; then
+        log_debug "Skipping whitelisted path: $path"
+        return 0
+    fi
+    
+    # In aggressive mode, check blacklist
+    if is_aggressive_mode && is_blacklisted "$path"; then
+        log_debug "Including blacklisted path (aggressive mode): $path"
+        return 1  # Don't skip blacklisted in aggressive mode
+    fi
+    
+    # Default protected paths
+    local protected_patterns=(
+        ".ssh"
+        ".gnupg"
+        ".git"
+        ".claude"
+        ".cursor"
+        ".task-flow"
+    )
+    
+    for pattern in "${protected_patterns[@]}"; do
+        if [[ "$path" == *"$pattern"* ]]; then
+            log_debug "Skipping protected path: $path"
+            return 0
+        fi
+    done
+    
+    return 1  # Don't skip
 }
 
 if is_macos; then

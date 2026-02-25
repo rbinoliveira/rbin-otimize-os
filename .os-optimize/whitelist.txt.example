@@ -1,0 +1,20 @@
+# Whitelist - Paths that will NEVER be deleted
+# One path per line (supports wildcards)
+# Lines starting with # are comments
+
+# Protect important directories
+.ssh
+.gnupg
+.git
+Documents
+Pictures
+Music
+Movies
+Downloads
+
+# Protect specific projects
+dev/important-project
+projects/critical
+
+# Protect specific applications
+Library/Application Support/Keychain
