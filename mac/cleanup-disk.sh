@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # macOS Disk Cleanup Script
-# Version: 1.0.0
-# Description: Clean up disk space by removing unnecessary files
+# Version: 2.0.0
+# Description: Wizard interativo de limpeza de disco seguindo CLEANUP_WIZARD_STEPS.md
 
 set -euo pipefail
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_DIR="${HOME}/.os-optimize/logs"
@@ -22,663 +22,399 @@ MIN_AGE_DAYS=0
 if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
     source "${PROJECT_ROOT}/lib/common.sh"
 else
-    echo "Error: lib/common.sh not found" >&2
-    exit 1
+    echo "Error: lib/common.sh not found" >&2; exit 1
 fi
-
 if [[ -f "${PROJECT_ROOT}/lib/disk_analysis.sh" ]]; then
     source "${PROJECT_ROOT}/lib/disk_analysis.sh"
 else
-    echo "Error: lib/disk_analysis.sh not found" >&2
-    exit 1
+    echo "Error: lib/disk_analysis.sh not found" >&2; exit 1
 fi
-
 if [[ -f "${PROJECT_ROOT}/lib/cleanup_preview.sh" ]]; then
     source "${PROJECT_ROOT}/lib/cleanup_preview.sh"
 else
-    echo "Error: lib/cleanup_preview.sh not found" >&2
-    exit 1
+    echo "Error: lib/cleanup_preview.sh not found" >&2; exit 1
 fi
 
-# ============ Logging Initialization ============
+# ============ Colors ============
+if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    C_RESET=$(tput sgr0); C_BOLD=$(tput bold)
+    C_GREEN=$(tput setaf 2); C_YELLOW=$(tput setaf 3)
+    C_RED=$(tput setaf 1); C_CYAN=$(tput setaf 6)
+    C_DIM=$(tput dim 2>/dev/null || echo '')
+    C_WHITE=$(tput setaf 7)
+else
+    C_RESET='\033[0m'; C_BOLD='\033[1m'; C_DIM='\033[2m'
+    C_GREEN='\033[0;32m'; C_YELLOW='\033[1;33m'
+    C_RED='\033[0;31m'; C_CYAN='\033[0;36m'; C_WHITE='\033[0;37m'
+fi
 
+# ============ Logging ============
 init_logging() {
     if mkdir -p "$LOG_DIR" 2>/dev/null; then
         chmod 755 "$LOG_DIR" 2>/dev/null || true
         local timestamp=$(date +%Y%m%d-%H%M%S)
         LOG_FILE="${LOG_DIR}/cleanup-disk-${timestamp}.log"
-
         {
             echo "=========================================="
-            echo "macOS Disk Cleanup Script - Log"
+            echo "macOS Disk Cleanup Wizard - Log"
             echo "=========================================="
             echo "Timestamp: $(date)"
             echo "macOS Version: $(sw_vers -productVersion 2>/dev/null || echo 'unknown')"
-            echo "Hostname: $(hostname 2>/dev/null || echo 'unknown')"
             echo "User: $(whoami 2>/dev/null || echo 'unknown')"
             echo "Script Version: $SCRIPT_VERSION"
-            echo "Flags: DRY_RUN=$DRY_RUN, VERBOSE=$VERBOSE, QUIET=$QUIET, FORCE=$FORCE, MIN_AGE=$MIN_AGE_DAYS"
+            echo "Flags: DRY_RUN=$DRY_RUN, FORCE=$FORCE, MIN_AGE=$MIN_AGE_DAYS"
             echo "=========================================="
             echo ""
         } >> "$LOG_FILE" 2>/dev/null || true
-
         log_info "Logging initialized: $LOG_FILE"
-        return 0
     else
-        print_warning "Cannot create log directory: $LOG_DIR (logging disabled)"
-        return 1
+        echo "Warning: Cannot create log directory" >&2
     fi
 }
 
 # ============ Argument Parsing ============
-
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --dry-run|-n)
-                DRY_RUN=true
-                shift
-                ;;
-            --verbose|-v)
-                VERBOSE=true
-                shift
-                ;;
-            --quiet|-q)
-                QUIET=true
-                shift
-                ;;
-            --force|-f)
-                FORCE=true
-                FORCE_MODE=true
-                shift
-                ;;
-            --all-users)
-                ALL_USERS=true
-                shift
-                ;;
-            --min-age)
-                MIN_AGE_DAYS="$2"
-                shift 2
-                ;;
-            --min-age=*)
-                MIN_AGE_DAYS="${1#*=}"
-                shift
-                ;;
-            --mode)
-                CLEANUP_MODE="$2"
-                shift 2
-                ;;
-            --mode=*)
-                CLEANUP_MODE="${1#*=}"
-                shift
-                ;;
-            -h|--help)
-                show_help
-                exit 0
-                ;;
+            --dry-run|-n) DRY_RUN=true; shift ;;
+            --verbose|-v) VERBOSE=true; shift ;;
+            --quiet|-q)   QUIET=true; shift ;;
+            --force|-f)   FORCE=true; FORCE_MODE=true; shift ;;
+            --all-users)  ALL_USERS=true; shift ;;
+            --min-age)    MIN_AGE_DAYS="$2"; shift 2 ;;
+            --min-age=*)  MIN_AGE_DAYS="${1#*=}"; shift ;;
+            --mode)       CLEANUP_MODE="$2"; shift 2 ;;
+            --mode=*)     CLEANUP_MODE="${1#*=}"; shift ;;
+            -h|--help)    show_help; exit 0 ;;
             *)
-                print_error "Unknown option: $1"
-                show_help
-                exit 1
+                echo -e "${C_RED}Opcao desconhecida: $1${C_RESET}" >&2
+                show_help; exit 1
                 ;;
         esac
     done
-    
-    # Validate cleanup mode
-    if [[ "$CLEANUP_MODE" != "safe" ]] && [[ "$CLEANUP_MODE" != "moderate" ]] && [[ "$CLEANUP_MODE" != "aggressive" ]]; then
-        print_error "Invalid cleanup mode: $CLEANUP_MODE (must be: safe, moderate, or aggressive)"
-        exit 1
-    fi
-
-    # Validate MIN_AGE_DAYS
     if ! [[ "$MIN_AGE_DAYS" =~ ^[0-9]+$ ]]; then
-        print_error "Invalid min-age: $MIN_AGE_DAYS (must be a non-negative integer)"
-        exit 1
+        echo "Invalid min-age: $MIN_AGE_DAYS" >&2; exit 1
     fi
-
-    # Validate ALL_USERS requires sudo
-    if [[ "$ALL_USERS" == "true" ]]; then
-        if ! require_sudo; then
-            print_error "--all-users requires sudo access"
-            exit 2
-        fi
+    if [[ "${ALL_USERS:-false}" == "true" ]] && ! require_sudo; then
+        echo "--all-users requires sudo" >&2; exit 2
     fi
 }
 
 show_help() {
-    cat << EOF
-macOS Disk Cleanup Script v$SCRIPT_VERSION
+    cat <<EOF
+macOS Disk Cleanup Wizard v$SCRIPT_VERSION
 
-Usage: $0 [OPTIONS]
+Uso: $0 [OPCOES]
 
-Options:
-    --dry-run, -n          Show what would be cleaned without executing
-    --verbose, -v          Show detailed output
-    --quiet, -q            Suppress non-error output
-    --force, -f            Skip confirmation prompts
-    --all-users            Clean files for ALL users on the system (requires sudo)
-    --min-age=N            Only clean files older than N days (default: 0)
-    --mode=MODE            Cleanup mode: safe, moderate, or aggressive (default: safe)
-    -h, --help             Show this help message
+Opcoes:
+    --dry-run, -n    Simula sem apagar nada
+    --verbose, -v    Saida detalhada
+    --quiet, -q      Saida minima
+    --force, -f      Pula confirmacoes (exceto passos de alto risco)
+    --min-age=N      So limpa arquivos mais velhos que N dias
+    -h, --help       Esta ajuda
 
-Cleanup Modes:
-    safe (default)         Only safe caches and temporary files
-    moderate               + Application Support heavy, Containers, .NET caches
-    aggressive             + Full IDE removal, language environments, large directories
-
-Description:
-    Cleans up disk space by removing unnecessary files from:
-    - Caches (user and system)
-    - Logs
-    - Temporary files
-    - System trash (Trash/Lixeira)
-    - Xcode (derived data, archives, device support, simulator caches)
-    - Android Studio caches
-    - Gradle caches
-    - React Native caches (Metro, Watchman, Haste)
-    - Node modules cache
-    - Docker volumes
-    - And more (depending on mode)
-
-User Scope:
-    By default, only the current user's files are cleaned.
-    Use --all-users to clean files for ALL users on the system.
-
-    ⚠ WARNING: --all-users requires sudo and will clean files for:
-       - All user home directories
-       - All user caches and logs
-       - All user application data
-
-    ⚠ LIMITATION: Due to macOS privacy protections (TCC), the system trash
-       can only be emptied for the current user, even with sudo access.
-       Other categories (caches, logs, etc.) work for all users.
-
-Warning: Some operations are irreversible. Use --dry-run first.
-
+O wizard guia por 10 passos agrupados por contexto,
+mais 3 passos de alto risco (AVD, SDK, Simuladores iOS)
+que sempre pedem confirmacao explicita.
 EOF
 }
 
-# Clean a specific category
-clean_category() {
-    local category="$1"
+# ============ Helpers ============
 
-    log_info "Cleaning category: $category"
+# Imprime cabecalho de passo
+_step_header() {
+    local num="$1" title="$2" risk="${3:-}"
+    echo ""
+    if [[ "$risk" == "high" ]]; then
+        echo -e "${C_RED}${C_BOLD}┌─────────────────────────────────────────────┐${C_RESET}"
+        echo -e "${C_RED}${C_BOLD}│  ATENCAO  Passo $num — $title${C_RESET}"
+        echo -e "${C_RED}${C_BOLD}└─────────────────────────────────────────────┘${C_RESET}"
+    else
+        echo -e "${C_CYAN}${C_BOLD}── Passo $num — $title${C_RESET}"
+    fi
+}
 
-    # Redirect verbose output to log only, keep user-facing messages visible
-    if delete_category_files "$category" "$MIN_AGE_DAYS" 2>&1 | while IFS= read -r line; do
-        # Only show important messages to user, log everything
-        if [[ "$line" == *"Deleted"* ]] || [[ "$line" == *"Failed"* ]] || [[ "$line" == *"ERROR"* ]] || [[ "$line" == *"WARNING"* ]]; then
-            log_info "$line"
-        else
-            log_debug "$line"
-        fi
-    done; then
+# Pergunta sim/nao retorna 0=sim 1=nao
+_ask() {
+    local prompt="$1"
+    local default="${2:-n}"
+    if [[ "$FORCE" == "true" ]] && [[ "$default" != "force_no" ]]; then
         return 0
-    else
-        return 1
     fi
+    local hint="s/N"
+    [[ "$default" == "s" ]] && hint="S/n"
+    local resp
+    read -r -p "$(echo -e "${C_YELLOW}  ${prompt} [${hint}]: ${C_RESET}")" resp </dev/tty
+    [[ -z "$resp" ]] && resp="$default"
+    [[ "$resp" =~ ^[SsYy]$ ]]
 }
 
-# Display category menu and get user selection
-select_categories_to_clean() {
-    local categories=("$@")
-    local -a selected_indices=()
-
-    # Display header (redirect to stderr so it's visible even in subshell)
-    print_info "===============================================" >&2
-    print_info "Select categories to clean:" >&2
-    print_info "===============================================" >&2
-    print_info "" >&2
-
-    # Display numbered list
-    local idx=1
-    for category in "${categories[@]}"; do
-        # Get category path for display
-        local category_path=""
-        if command -v get_category_path >/dev/null 2>&1; then
-            category_path=$(get_category_path "$category")
+# Executa limpeza de uma lista de categorias
+_run_categories() {
+    local -a cats=("$@")
+    local cleaned=0 failed=0 total=${#cats[@]}
+    local i=0
+    for cat in "${cats[@]}"; do
+        i=$((i+1))
+        echo -e "  ${C_DIM}[$i/$total]${C_RESET} Limpando ${C_WHITE}${cat}${C_RESET}..."
+        set +e
+        delete_category_files "$cat" "$MIN_AGE_DAYS" >> "${LOG_FILE:-/dev/null}" 2>&1
+        local rc=$?
+        set -e
+        if [[ $rc -eq 0 ]]; then
+            echo -e "  ${C_GREEN}✓${C_RESET} ${cat}"
+            cleaned=$((cleaned+1))
+        else
+            echo -e "  ${C_YELLOW}–${C_RESET} ${cat} (nao encontrado ou cancelado)"
+            failed=$((failed+1))
         fi
-
-        # Special handling for categories without single path
-        if [[ -z "$category_path" ]]; then
-            case "$category" in
-                node_modules)
-                    category_path="Multiple project directories"
-                    ;;
-                volumes)
-                    category_path="Docker volumes (unused only)"
-                    ;;
-                build_artifacts)
-                    category_path="Multiple project directories"
-                    ;;
-                *)
-                    category_path="Various locations"
-                    ;;
-            esac
-        fi
-
-        # Format category name for display
-        local category_display="$category"
-        case "$category" in
-            browser_trash)
-                category_display="System Trash (Lixeira)"
-                ;;
-            node_modules)
-                category_display="node_modules"
-                ;;
-            build_artifacts)
-                category_display="Build Artifacts"
-                ;;
-            orphaned_apps)
-                category_display="Orphaned Apps (Deleted Apps Configs)"
-                ;;
-            npm_cache)
-                category_display="NPM Cache"
-                ;;
-            expo_cache)
-                category_display="Expo Cache"
-                ;;
-            vscode_cache)
-                category_display="VS Code Cache"
-                ;;
-            nvm_cache)
-                category_display="NVM Cache"
-                ;;
-            cocoapods_cache)
-                category_display="CocoaPods Cache"
-                ;;
-            yarn_cache)
-                category_display="Yarn Cache"
-                ;;
-            pip_cache)
-                category_display="Pip Cache (Python)"
-                ;;
-            gem_cache)
-                category_display="Gem Cache (Ruby)"
-                ;;
-            homebrew_cache)
-                category_display="Homebrew Cache"
-                ;;
-            *)
-                category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
-                ;;
-        esac
-
-        printf "  %2d) %-35s (%s)\n" "$idx" "$category_display" "$category_path" >&2
-        idx=$((idx + 1))
     done
-
-    print_info "" >&2
-    print_info "Enter numbers separated by comma (e.g., 1,2,3)" >&2
-    print_info "Or type 'all' to select everything" >&2
-    print_info "" >&2
-
-    # Read user input
-    local input
-    read -r -p "Your choice: " input </dev/tty
-
-    # Handle empty input
-    if [[ -z "$input" ]]; then
-        return 1
-    fi
-
-    # Handle 'all' selection
-    if [[ "$input" == "all" ]] || [[ "$input" == "ALL" ]]; then
-        for ((i=1; i<=${#categories[@]}; i++)); do
-            selected_indices+=($i)
-        done
-    else
-        # Parse comma-separated values only
-        IFS=',' read -ra selections <<< "$input"
-        for selection in "${selections[@]}"; do
-            # Trim whitespace
-            selection=$(echo "$selection" | xargs)
-
-            # Check if it's a valid number
-            if [[ "$selection" =~ ^[0-9]+$ ]]; then
-                if [[ $selection -ge 1 ]] && [[ $selection -le ${#categories[@]} ]]; then
-                    selected_indices+=($selection)
-                else
-                    print_warning "Invalid selection: $selection (out of range)" >&2
-                fi
-            else
-                print_warning "Invalid selection: $selection (not a number)" >&2
-            fi
-        done
-    fi
-
-    # Remove duplicates and sort
-    if [[ ${#selected_indices[@]} -eq 0 ]]; then
-        print_warning "No categories selected" >&2
-        return 1
-    fi
-
-    selected_indices=($(printf '%s\n' "${selected_indices[@]}" | sort -nu))
-
-    # Display selected categories for confirmation
-    print_info "" >&2
-    print_info "Selected categories:" >&2
-    for idx in "${selected_indices[@]}"; do
-        local category="${categories[$((idx-1))]}"
-        local category_display="$category"
-        case "$category" in
-            browser_trash)
-                category_display="System Trash (Lixeira)"
-                ;;
-            node_modules)
-                category_display="node_modules"
-                ;;
-            build_artifacts)
-                category_display="Build Artifacts"
-                ;;
-            orphaned_apps)
-                category_display="Orphaned Apps (Deleted Apps Configs)"
-                ;;
-            npm_cache)
-                category_display="NPM Cache"
-                ;;
-            expo_cache)
-                category_display="Expo Cache"
-                ;;
-            vscode_cache)
-                category_display="VS Code Cache"
-                ;;
-            nvm_cache)
-                category_display="NVM Cache"
-                ;;
-            cocoapods_cache)
-                category_display="CocoaPods Cache"
-                ;;
-            yarn_cache)
-                category_display="Yarn Cache"
-                ;;
-            pip_cache)
-                category_display="Pip Cache (Python)"
-                ;;
-            gem_cache)
-                category_display="Gem Cache (Ruby)"
-                ;;
-            homebrew_cache)
-                category_display="Homebrew Cache"
-                ;;
-            xcode_app)
-                category_display="Xcode.app (AGGRESSIVE)"
-                ;;
-            xcode_developer_full)
-                category_display="Xcode Developer (Full)"
-                ;;
-            xcode_simulator_full)
-                category_display="iOS Simulator (Full)"
-                ;;
-            xcode_command_line_tools)
-                category_display="Command Line Tools"
-                ;;
-            android_studio_app)
-                category_display="Android Studio.app (AGGRESSIVE)"
-                ;;
-            android_library)
-                category_display="Android Library"
-                ;;
-            android_application_support)
-                category_display="Android Studio App Support"
-                ;;
-            application_support_google)
-                category_display="Google App Support"
-                ;;
-            application_support_cursor)
-                category_display="Cursor App Support"
-                ;;
-            application_support_wallpaper)
-                category_display="macOS Wallpaper"
-                ;;
-            containers_cleanup)
-                category_display="Orphaned Containers"
-                ;;
-            nuget_cache)
-                category_display="NuGet Cache (.NET)"
-                ;;
-            dotnet_cache)
-                category_display=".NET Cache"
-                ;;
-            homebrew_cleanup)
-                category_display="Homebrew Cleanup"
-                ;;
-            gradle_full)
-                category_display="Gradle (Full)"
-                ;;
-            yarn_full)
-                category_display="Yarn (Full)"
-                ;;
-            nvm_full)
-                category_display="NVM (Full - All Node Versions)"
-                ;;
-            docker_full)
-                category_display="Docker (Full)"
-                ;;
-            large_directories)
-                category_display="Large Directories (>1GB)"
-                ;;
-            dev_directory)
-                category_display="dev Directory (AGGRESSIVE)"
-                ;;
-            *)
-                category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
-                ;;
-        esac
-        print_info "  - $category_display" >&2
-    done
-    print_info "" >&2
-
-    # Export selected indices for main function
-    echo "${selected_indices[@]}"
-    return 0
+    echo -e "  ${C_DIM}Concluido: $cleaned limpos, $failed ignorados${C_RESET}"
 }
 
-# Main execution
+# ============ Wizard ============
+run_wizard() {
+    local -a selected=()
+
+    echo ""
+    echo -e "${C_BOLD}${C_CYAN}  Wizard de Limpeza de Disco${C_RESET}"
+    echo -e "${C_DIM}  Responda cada passo. 'N' pula o passo sem apagar nada.${C_RESET}"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "  ${C_YELLOW}[dry-run] Nenhum arquivo sera apagado.${C_RESET}"
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 1 — Limpeza geral
+    # ------------------------------------------------------------------
+    _step_header 1 "Limpeza geral (caches, logs, temporarios, lixeira)"
+    echo -e "${C_DIM}  Apaga: ~/Library/Caches, ~/Library/Logs, /tmp, ~/.Trash${C_RESET}"
+    echo -e "${C_DIM}  Impacto: nenhum — tudo regenerado automaticamente${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(caches logs temp browser_trash)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 2 — Caches JS/TS
+    # ------------------------------------------------------------------
+    _step_header 2 "Caches JS/TS (npm, yarn, pnpm, bun, expo, turbo, Metro)"
+    echo -e "${C_DIM}  Apaga: ~/.npm  ~/.yarn/cache  ~/.pnpm-store  ~/.bun/install/cache${C_RESET}"
+    echo -e "${C_DIM}         ~/.expo  ~/.turbo  Metro bundler / React Native cache${C_RESET}"
+    echo -e "${C_DIM}  Impacto: proximo install sera mais lento (re-download)${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(npm_cache yarn_cache pnpm_store bun_cache expo_cache turborepo_cache react_native)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 3 — Build outputs dos projetos
+    # ------------------------------------------------------------------
+    _step_header 3 "Build outputs dos projetos (dist, build, .next, coverage…)"
+    echo -e "${C_DIM}  Apaga: pastas dist/ build/ target/ .next/ .nuxt/ coverage/ .nyc_output/${C_RESET}"
+    echo -e "${C_DIM}         dentro de ~/dev e similares (profundidade 5)${C_RESET}"
+    echo -e "${C_DIM}         + app/build Android e ios/build iOS dentro dos projetos${C_RESET}"
+    echo -e "${C_DIM}  Impacto: precisa rodar npm run build / gradlew build para recriar${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(build_artifacts android_project_builds ios_project_builds)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 4 — Ferramentas de teste (Jest, Playwright, Cypress)
+    # ------------------------------------------------------------------
+    _step_header 4 "Caches de teste (Jest, Playwright, Cypress)"
+    echo -e "${C_DIM}  Apaga: /tmp/jest-*  ~/Library/Caches/ms-playwright  ~/.cache/Cypress${C_RESET}"
+    echo -e "${C_DIM}  Impacto: proximo 'npx playwright install' / 'npx cypress install'${C_RESET}"
+    echo -e "${C_DIM}           vai re-baixar os binarios dos browsers${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(jest_cache playwright_cache cypress_cache)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 5 — Python, Ruby, .NET
+    # ------------------------------------------------------------------
+    _step_header 5 "Caches Python, Ruby e .NET (pip, gem, bundler, NuGet)"
+    echo -e "${C_DIM}  Apaga: ~/Library/Caches/pip  ~/.gem/cache  ~/.bundle/cache${C_RESET}"
+    echo -e "${C_DIM}         ~/.nuget  ~/.dotnet${C_RESET}"
+    echo -e "${C_DIM}  Impacto: proximas instalacoes de pacotes serao mais lentas${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(pip_cache gem_cache ruby_bundler_cache nuget_cache dotnet_cache)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 6 — Caches iOS/Swift (nao quebra desenvolvimento)
+    # ------------------------------------------------------------------
+    _step_header 6 "Caches iOS/Swift (SwiftPM, Carthage, logs Xcode)"
+    echo -e "${C_DIM}  Apaga: ~/Library/Caches/org.swift.swiftpm${C_RESET}"
+    echo -e "${C_DIM}         ~/Library/Caches/org.carthage.CarthageKit${C_RESET}"
+    echo -e "${C_DIM}         ~/Library/Logs/CoreSimulator  ~/Library/Logs/DiagnosticReports${C_RESET}"
+    echo -e "${C_DIM}  Impacto: proximo build Xcode re-baixa pacotes Swift/Carthage${C_RESET}"
+    echo -e "${C_DIM}           Logs sao apenas registros — builds e simuladores nao afetados${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(swiftpm_cache carthage_cache xcode_sim_logs)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 7 — node_modules dos projetos
+    # ------------------------------------------------------------------
+    _step_header 7 "node_modules dos projetos em ~/dev"
+    echo -e "${C_DIM}  Apaga: todas as pastas node_modules/ encontradas em${C_RESET}"
+    echo -e "${C_DIM}         ~/dev ~/projects ~/workspace ~/code ~/Documents ~/Desktop${C_RESET}"
+    echo -e "${C_DIM}  Impacto: precisa rodar npm/yarn/pnpm install em cada projeto${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(node_modules)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 8 — Apps desinstalados e cache VS Code
+    # ------------------------------------------------------------------
+    _step_header 8 "Configs de apps desinstalados e cache VS Code"
+    echo -e "${C_DIM}  Apaga: ~/Library/Application Support/<app> de apps nao instalados${C_RESET}"
+    echo -e "${C_DIM}         ~/Library/Application Support/Code/Cache (VS Code)${C_RESET}"
+    echo -e "${C_DIM}         ~/.nvm/.cache (downloads do nvm — versoes Node mantidas)${C_RESET}"
+    echo -e "${C_DIM}  Impacto: baixo — VS Code recria cache sozinho${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(orphaned_apps vscode_cache nvm_cache)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 9 — Docker
+    # ------------------------------------------------------------------
+    _step_header 9 "Docker (VMs e volumes nao usados)"
+    echo -e "${C_DIM}  Apaga: ~/Library/Containers/com.docker.docker/Data/vms${C_RESET}"
+    echo -e "${C_DIM}         volumes Docker orphaned (containers que nao existem mais)${C_RESET}"
+    echo -e "${C_DIM}  Impacto: medio — volumes podem ter dados de containers parados${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(docker volumes)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 10 — Homebrew
+    # ------------------------------------------------------------------
+    _step_header 10 "Homebrew (versoes antigas de formulas)"
+    echo -e "${C_DIM}  Apaga: ~/Library/Caches/Homebrew + executa 'brew cleanup'${C_RESET}"
+    echo -e "${C_DIM}  Impacto: versoes antigas removidas. Reinstale se precisar de versao antiga${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(homebrew_cache homebrew_cleanup)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO A — Emuladores Android (AVD) — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header A "Emuladores Android (AVDs)" high
+    echo -e "${C_RED}  Apaga: ~/.android/avd — TODOS os emuladores Android${C_RESET}"
+    echo -e "${C_RED}  - Os emuladores sao removidos permanentemente${C_RESET}"
+    echo -e "${C_RED}  - Apps instalados nos emuladores serao perdidos${C_RESET}"
+    echo -e "${C_RED}  - Precisara recriar AVDs no Android Studio > Device Manager${C_RESET}"
+    echo -e "${C_DIM}  Use apenas para comecar do zero com os emuladores.${C_RESET}"
+    echo ""
+    if _ask "Apagar emuladores Android?" "force_no"; then
+        local avd_resp
+        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os AVDs:${C_RESET}"
+        read -r avd_resp </dev/tty
+        if [[ "$avd_resp" == "yes" ]]; then
+            selected+=(android_avd)
+        else
+            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
+        fi
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO B — Simuladores iOS — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header B "Simuladores iOS" high
+    echo -e "${C_RED}  Apaga: ~/Library/Developer/CoreSimulator/Devices${C_RESET}"
+    echo -e "${C_RED}  - TODOS os simuladores iOS sao removidos permanentemente${C_RESET}"
+    echo -e "${C_RED}  - Apps instalados nos simuladores serao perdidos${C_RESET}"
+    echo -e "${C_RED}  - Xcode recria simuladores padrao ao abrir${C_RESET}"
+    echo -e "${C_RED}  - Simuladores customizados precisarao ser recriados em${C_RESET}"
+    echo -e "${C_RED}    Window > Devices and Simulators${C_RESET}"
+    echo -e "${C_DIM}  Use apenas para comecar do zero com os simuladores.${C_RESET}"
+    echo ""
+    if _ask "Apagar simuladores iOS?" "force_no"; then
+        local sim_resp
+        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os simuladores:${C_RESET}"
+        read -r sim_resp </dev/tty
+        if [[ "$sim_resp" == "yes" ]]; then
+            selected+=(ios_simulator_devices)
+        else
+            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
+        fi
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO C — Android SDK Platforms — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header C "Android SDK Platforms" high
+    echo -e "${C_RED}  Apaga: ~/Library/Android/sdk/platforms/android-*${C_RESET}"
+    echo -e "${C_RED}  - TODAS as versoes do SDK Android instaladas${C_RESET}"
+    echo -e "${C_RED}  - Projetos que exigem versao especifica nao compilarao${C_RESET}"
+    echo -e "${C_RED}  - Reinstalacao via Android Studio > SDK Manager${C_RESET}"
+    echo -e "${C_DIM}  Use apenas para limpar e reinstalar o SDK do zero.${C_RESET}"
+    echo ""
+    if _ask "Apagar Android SDK Platforms?" "force_no"; then
+        local sdk_resp
+        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os SDK platforms:${C_RESET}"
+        read -r sdk_resp </dev/tty
+        if [[ "$sdk_resp" == "yes" ]]; then
+            selected+=(android_sdk_old)
+        else
+            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
+        fi
+    fi
+
+    # ------------------------------------------------------------------
+    # Resumo e execucao
+    # ------------------------------------------------------------------
+    echo ""
+    if [[ ${#selected[@]} -eq 0 ]]; then
+        echo -e "${C_YELLOW}Nenhum passo selecionado. Limpeza cancelada.${C_RESET}"
+        return 0
+    fi
+
+    echo -e "${C_BOLD}${C_CYAN}── Resumo do que sera apagado ──────────────────${C_RESET}"
+    for cat in "${selected[@]}"; do
+        echo -e "  ${C_DIM}•${C_RESET} $cat"
+    done
+    echo ""
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "${C_YELLOW}[dry-run] Nada foi apagado.${C_RESET}"
+        return 0
+    fi
+
+    local confirm_resp
+    read -r -p "$(echo -e "${C_YELLOW}  Confirma a limpeza? [s/N]: ${C_RESET}")" confirm_resp </dev/tty
+    if ! [[ "$confirm_resp" =~ ^[SsYy]$ ]]; then
+        echo -e "${C_YELLOW}Cancelado.${C_RESET}"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${C_BOLD}Iniciando limpeza...${C_RESET}"
+    echo ""
+
+    export SKIP_CATEGORY_CONFIRM=true
+    _run_categories "${selected[@]}"
+    unset SKIP_CATEGORY_CONFIRM
+}
+
+# ============ Main ============
 main() {
-    # Parse arguments
     parse_arguments "$@"
-
-    # Initialize logging
     init_logging
 
-    # Validate macOS version
-    if ! validate_os; then
-        exit 1
+    if ! validate_os; then exit 1; fi
+
+    trap 'echo ""; echo "Interrompido."; exit 0' INT TERM
+
+    run_wizard
+
+    echo ""
+    echo -e "${C_GREEN}${C_BOLD}Limpeza concluida.${C_RESET}"
+    if [[ -n "${LOG_FILE:-}" ]]; then
+        echo -e "${C_DIM}Log: $LOG_FILE${C_RESET}"
     fi
-
-    print_info "macOS Disk Cleanup Script v$SCRIPT_VERSION"
-    print_info "=============================================="
-    print_info ""
-
-    # Show cleanup mode
-    print_info "Cleanup Mode: $CLEANUP_MODE"
-    if is_safe_mode; then
-        print_info "  → Safe mode: Only caches and temporary files"
-    elif is_moderate_mode; then
-        print_info "  → Moderate mode: + Application Support, Containers, .NET"
-    elif is_aggressive_mode; then
-        print_warning "  → Aggressive mode: + Full IDE removal, language environments, large directories"
-    fi
-    print_info ""
-
-    if is_dry_run; then
-        print_warning "DRY-RUN MODE: No files will be deleted"
-        print_info ""
-    fi
-
-    if [[ "$FORCE" == "true" ]]; then
-        print_warning "FORCE MODE: Confirmations disabled"
-        print_info ""
-    fi
-    
-
-    # Note: Use analyze-disk.sh to preview what will be cleaned
-    if ! is_dry_run && [[ "$FORCE" != "true" ]]; then
-        print_info "Note: Use 'analyze-disk.sh' to preview disk usage before cleaning"
-        print_info ""
-    fi
-
-    # Get all categories
-    local categories=$(get_cleanup_categories)
-    local -a category_array=($categories)
-    local cleaned=0
-    local failed=0
-
-    # Interactive category selection (unless force or dry-run)
-    local -a selected_indices=()
-    if ! is_dry_run && [[ "$FORCE" != "true" ]]; then
-        local selection_output
-        if selection_output=$(select_categories_to_clean "${category_array[@]}"); then
-            selected_indices=($selection_output)
-        else
-            print_warning "Cleanup cancelled"
-            exit 0
-        fi
-
-        # Final confirmation
-        if ! confirm "Confirm cleanup of selected categories? (y/N)" "N"; then
-            print_warning "Cleanup cancelled"
-            exit 0
-        fi
-
-        # Skip individual category confirmations since user already confirmed
-        export SKIP_CATEGORY_CONFIRM=true
-    else
-        # In force or dry-run mode, clean all categories
-        for ((i=1; i<=${#category_array[@]}; i++)); do
-            selected_indices+=($i)
-        done
-    fi
-
-    print_info ""
-    print_info "Starting cleanup..."
-    print_info ""
-
-    # Determine which users to clean
-    local -a user_homes=()
-    if [[ "$ALL_USERS" == "true" ]]; then
-        print_info "Cleaning for ALL users on the system..."
-        print_info ""
-        while IFS= read -r user_home; do
-            user_homes+=("$user_home")
-        done < <(get_all_user_homes)
-
-        if [[ ${#user_homes[@]} -eq 0 ]]; then
-            print_error "No user home directories found"
-            exit 1
-        fi
-
-        print_info "Found ${#user_homes[@]} user(s) to clean"
-        print_info ""
-    else
-        user_homes=("$HOME")
-    fi
-
-    # Calculate total categories to process
-    local total_categories=$((${#selected_indices[@]} * ${#user_homes[@]}))
-    local current_category=0
-
-    # Clean selected categories for each user
-    for user_home in "${user_homes[@]}"; do
-        local username=$(basename "$user_home")
-
-        if [[ "$ALL_USERS" == "true" ]]; then
-            print_info "=========================================="
-            print_info "Cleaning for user: $username"
-            print_info "=========================================="
-            print_info ""
-        fi
-
-        # Export HOME_OVERRIDE so cleanup functions can use it
-        export HOME_OVERRIDE="$user_home"
-
-        for idx in "${selected_indices[@]}"; do
-            local category="${category_array[$((idx-1))]}"
-            current_category=$((current_category + 1))
-            
-            # Format category name for display
-            local category_display="$category"
-            case "$category" in
-                browser_trash)
-                    category_display="System Trash (Lixeira)"
-                    ;;
-                node_modules)
-                    category_display="node_modules"
-                    ;;
-                build_artifacts)
-                    category_display="Build Artifacts"
-                    ;;
-                orphaned_apps)
-                    category_display="Orphaned Apps (Deleted Apps Configs)"
-                    ;;
-                npm_cache)
-                    category_display="NPM Cache"
-                    ;;
-                expo_cache)
-                    category_display="Expo Cache"
-                    ;;
-                vscode_cache)
-                    category_display="VS Code Cache"
-                    ;;
-                nvm_cache)
-                    category_display="NVM Cache"
-                    ;;
-                cocoapods_cache)
-                    category_display="CocoaPods Cache"
-                    ;;
-                yarn_cache)
-                    category_display="Yarn Cache"
-                    ;;
-                pip_cache)
-                    category_display="Pip Cache (Python)"
-                    ;;
-                gem_cache)
-                    category_display="Gem Cache (Ruby)"
-                    ;;
-                homebrew_cache)
-                    category_display="Homebrew Cache"
-                    ;;
-                *)
-                    category_display=$(echo "$category" | sed 's/_/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
-                    ;;
-            esac
-
-            # Show progress
-            print_info "[$current_category/$total_categories] Processing: $category_display..."
-            
-            if clean_category "$category"; then
-                cleaned=$((cleaned + 1))
-                print_success "✓ Completed: $category_display"
-            else
-                failed=$((failed + 1))
-                print_warning "✗ Failed: $category_display"
-            fi
-            print_info ""
-        done
-
-        if [[ "$ALL_USERS" == "true" ]]; then
-            print_info ""
-        fi
-    done
-
-    # Unset HOME_OVERRIDE
-    unset HOME_OVERRIDE
-
-    # Summary
-    print_info ""
-    print_info "=============================================="
-    print_success "Cleanup completed!"
-    print_info "Categories cleaned: $cleaned"
-    if [[ $failed -gt 0 ]]; then
-        print_warning "Categories failed: $failed"
-    fi
-    print_info ""
-
-    if [[ -n "$LOG_FILE" ]]; then
-        print_info "Log file: $LOG_FILE"
-    fi
+    echo ""
 }
 
-# Run main function
 main "$@"

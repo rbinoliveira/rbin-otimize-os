@@ -82,14 +82,19 @@ format_bytes() {
 }
 
 get_disk_categories() {
-    local base_categories="caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache cocoapods_cache yarn_cache pip_cache gem_cache homebrew_cache"
-    
+    # Android/iOS categories are intentionally excluded to preserve dev environments:
+    #   xcode, xcode_archives, xcode_device_support, ios_simulators,
+    #   cocoapods_cache, android_studio, gradle,
+    #   xcode_app, xcode_developer_full, xcode_simulator_full, xcode_command_line_tools,
+    #   android_studio_app, android_library, android_application_support, gradle_full
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices"
+
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
-    
-    # Add aggressive mode categories
-    local aggressive_categories="xcode_app xcode_developer_full xcode_simulator_full xcode_command_line_tools android_studio_app android_library android_application_support gradle_full yarn_full nvm_full docker_full large_directories dev_directory"
-    
+
+    # Add aggressive mode categories (Android/iOS intentionally excluded)
+    local aggressive_categories="yarn_full nvm_full docker_full large_directories dev_directory"
+
     if is_macos; then
         if is_aggressive_mode; then
             echo "${base_categories} ${moderate_categories} ${aggressive_categories}"
@@ -100,7 +105,7 @@ get_disk_categories() {
             echo "$base_categories"
         fi
     elif is_linux; then
-        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
+        echo "caches logs temp browser_trash apt yum pacman react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
     else
         echo "caches logs temp"
     fi
@@ -440,6 +445,22 @@ get_category_path() {
         dev_directory)
             echo "$(get_user_home)/dev"
             ;;
+        flutter_cache) echo "$(get_user_home)/.pub-cache" ;;
+        swiftpm_cache) is_macos && echo "$(get_user_home)/Library/Caches/org.swift.swiftpm" || echo "" ;;
+        xcode_sim_logs) echo "" ;;  # multiple paths, handled in scan
+        carthage_cache) is_macos && echo "$(get_user_home)/Library/Caches/org.carthage.CarthageKit" || echo "" ;;
+        ruby_bundler_cache) echo "$(get_user_home)/.bundle/cache" ;;
+        turborepo_cache) echo "$(get_user_home)/.turbo" ;;
+        jest_cache) echo "" ;;  # /tmp/jest-* wildcard, handled in scan
+        playwright_cache) is_macos && echo "$(get_user_home)/Library/Caches/ms-playwright" || echo "$(get_user_home)/.cache/ms-playwright" ;;
+        cypress_cache) echo "$(get_user_home)/.cache/Cypress" ;;
+        pnpm_store) echo "$(get_user_home)/.pnpm-store" ;;
+        bun_cache) echo "$(get_user_home)/.bun/install/cache" ;;
+        android_project_builds) echo "" ;;  # scan-based
+        ios_project_builds) echo "" ;;      # scan-based
+        android_avd) echo "$(get_user_home)/.android/avd" ;;
+        android_sdk_old) echo "$(get_user_home)/Library/Android/sdk/platforms" ;;
+        ios_simulator_devices) is_macos && echo "$(get_user_home)/Library/Developer/CoreSimulator/Devices" || echo "" ;;
         *)
             echo ""
             ;;

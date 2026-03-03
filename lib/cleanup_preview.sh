@@ -59,14 +59,19 @@ get_user_home() {
 # ============ Cleanup Category Functions ============
 
 get_cleanup_categories() {
-    local base_categories="caches logs temp browser_trash xcode xcode_archives xcode_device_support ios_simulators android_studio gradle react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache cocoapods_cache yarn_cache pip_cache gem_cache homebrew_cache"
-    
+    # Android/iOS categories are intentionally excluded to preserve dev environments:
+    #   xcode, xcode_archives, xcode_device_support, ios_simulators,
+    #   cocoapods_cache, android_studio, gradle,
+    #   xcode_app, xcode_developer_full, xcode_simulator_full, xcode_command_line_tools,
+    #   android_studio_app, android_library, android_application_support, gradle_full
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices"
+
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
-    
-    # Add aggressive mode categories
-    local aggressive_categories="xcode_app xcode_developer_full xcode_simulator_full xcode_command_line_tools android_studio_app android_library android_application_support gradle_full yarn_full nvm_full docker_full large_directories dev_directory"
-    
+
+    # Add aggressive mode categories (Android/iOS intentionally excluded)
+    local aggressive_categories="yarn_full nvm_full docker_full large_directories dev_directory"
+
     if is_macos; then
         if is_aggressive_mode; then
             echo "${base_categories} ${moderate_categories} ${aggressive_categories}"
@@ -77,7 +82,7 @@ get_cleanup_categories() {
             echo "$base_categories"
         fi
     elif is_linux; then
-        echo "caches logs temp browser_trash apt yum pacman android_studio gradle react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
+        echo "caches logs temp browser_trash apt yum pacman react_native node_modules docker volumes build_artifacts snap orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache"
     else
         echo "caches logs temp"
     fi
@@ -1214,6 +1219,190 @@ scan_cleanup_category() {
             [[ $file_count -eq 0 ]] && file_count=1
             echo "${category}|${path}|${file_count}|${total_size}"
             return 0
+            ;;
+        flutter_cache)
+            local path="$(get_user_home)/.pub-cache"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 5))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        swiftpm_cache)
+            local path="$(get_user_home)/Library/Caches/org.swift.swiftpm"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 5))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        xcode_sim_logs)
+            local total_size=0 file_count=0
+            local paths=("$(get_user_home)/Library/Logs/CoreSimulator" "$(get_user_home)/Library/Logs/DiagnosticReports")
+            for p in "${paths[@]}"; do
+                [[ ! -e "$p" ]] && continue
+                local sz=$(du -sk "$p" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz * 2))
+            done
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|Xcode/Simulator logs|${file_count}|${total_size}"
+            ;;
+
+        carthage_cache)
+            local path="$(get_user_home)/Library/Caches/org.carthage.CarthageKit"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 5))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        ruby_bundler_cache)
+            local path="$(get_user_home)/.bundle/cache"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 5))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        turborepo_cache)
+            local path="$(get_user_home)/.turbo"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 5))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        jest_cache)
+            local total_size=0 file_count=0
+            while IFS= read -r d; do
+                local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz * 2))
+            done < <(find /tmp -maxdepth 1 -name "jest-*" -type d 2>/dev/null)
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|/tmp/jest-*|${file_count}|${total_size}"
+            ;;
+
+        playwright_cache)
+            local path
+            if is_macos; then path="$(get_user_home)/Library/Caches/ms-playwright"
+            else path="$(get_user_home)/.cache/ms-playwright"; fi
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 2))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        cypress_cache)
+            local path="$(get_user_home)/.cache/Cypress"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 2))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        pnpm_store)
+            local path="$(get_user_home)/.pnpm-store"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 10))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        bun_cache)
+            local path="$(get_user_home)/.bun/install/cache"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz * 5))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        android_project_builds)
+            local total_size=0 file_count=0
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code")
+            for base in "${search_paths[@]}"; do
+                [[ ! -d "$base" ]] && continue
+                while IFS= read -r d; do
+                    local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+                    [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz))
+                done < <(find "$base" -maxdepth 6 -type d -name "build" -path "*/app/build" 2>/dev/null | head -20)
+            done
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|Android project build dirs|${file_count}|${total_size}"
+            ;;
+
+        ios_project_builds)
+            local total_size=0 file_count=0
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code")
+            for base in "${search_paths[@]}"; do
+                [[ ! -d "$base" ]] && continue
+                while IFS= read -r d; do
+                    local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+                    [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz))
+                done < <(find "$base" -maxdepth 6 -type d -name "build" \( -path "*/ios/build" -o -path "*/Build/Products" \) 2>/dev/null | head -20)
+            done
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|iOS project build dirs|${file_count}|${total_size}"
+            ;;
+
+        android_avd)
+            local path="$(get_user_home)/.android/avd"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
+            ;;
+
+        android_sdk_old)
+            local base="$(get_user_home)/Library/Android/sdk/platforms"
+            local total_size=0 file_count=0
+            if [[ -d "$base" ]]; then
+                local sz=$(du -sk "$base" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${base}|${file_count}|${total_size}"
+            ;;
+
+        ios_simulator_devices)
+            if ! is_macos; then echo "${category}||0|0"; return 0; fi
+            local path="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
+            local total_size=0 file_count=0
+            if [[ -e "$path" ]]; then
+                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz))
+            fi
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path}|${file_count}|${total_size}"
             ;;
     esac
 
@@ -4430,6 +4619,371 @@ delete_category_files() {
                 return 1
             fi
             
+            return 0
+            ;;
+        flutter_cache)
+            log_info "Cleaning Flutter/Dart pub cache..."
+            local path="$(get_user_home)/.pub-cache"
+            if [[ ! -e "$path" ]]; then log_info "Flutter cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Flutter/Dart pub cache"
+                print_info "Location: $path  |  Size: $size_formatted"
+                print_warning "  - Packages re-downloaded with: flutter pub get"
+                if ! confirm "Delete Flutter cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Flutter cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Flutter cache" || { log_warn "Failed to delete Flutter cache"; return 1; }
+            return 0
+            ;;
+
+        swiftpm_cache)
+            log_info "Cleaning Swift Package Manager cache..."
+            local path="$(get_user_home)/Library/Caches/org.swift.swiftpm"
+            if [[ ! -e "$path" ]]; then log_info "SwiftPM cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Swift Package Manager cache"
+                print_info "Location: $path  |  Size: $size_formatted"
+                print_warning "  - Packages re-downloaded on next Xcode build"
+                if ! confirm "Delete SwiftPM cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting SwiftPM cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted SwiftPM cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        xcode_sim_logs)
+            log_info "Cleaning Xcode/Simulator logs..."
+            local paths=("$(get_user_home)/Library/Logs/CoreSimulator" "$(get_user_home)/Library/Logs/DiagnosticReports")
+            local total_size=0; local dirs_to_delete=()
+            for p in "${paths[@]}"; do
+                [[ ! -e "$p" ]] && continue
+                dirs_to_delete+=("$p")
+                local sz=$(du -sk "$p" 2>/dev/null | awk '{print $1}'); [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024))
+            done
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then log_info "No Xcode/Simulator logs found"; return 0; fi
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Xcode/Simulator logs ($size_formatted)"
+                print_warning "  - Crash reports, simulator logs — only logs, no build data"
+                if ! confirm "Delete Xcode/Simulator logs? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Xcode/Simulator logs ($size_formatted)"
+            fi
+            for p in "${dirs_to_delete[@]}"; do rm -rf "$p" 2>/dev/null && log_debug "Deleted: $p" || log_warn "Failed: $p"; done
+            log_success "Deleted Xcode/Simulator logs"
+            return 0
+            ;;
+
+        carthage_cache)
+            log_info "Cleaning Carthage cache..."
+            local path="$(get_user_home)/Library/Caches/org.carthage.CarthageKit"
+            if [[ ! -e "$path" ]]; then log_info "Carthage cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Carthage cache ($size_formatted)"
+                print_warning "  - Frameworks re-downloaded with: carthage update"
+                if ! confirm "Delete Carthage cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Carthage cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Carthage cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        ruby_bundler_cache)
+            log_info "Cleaning Ruby Bundler cache..."
+            local path="$(get_user_home)/.bundle/cache"
+            if [[ ! -e "$path" ]]; then log_info "Bundler cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Ruby Bundler cache ($size_formatted)"
+                print_warning "  - Gems re-downloaded with: bundle install"
+                if ! confirm "Delete Bundler cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Bundler cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Bundler cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        turborepo_cache)
+            log_info "Cleaning Turborepo cache..."
+            local path="$(get_user_home)/.turbo"
+            if [[ ! -e "$path" ]]; then log_info "Turborepo cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Turborepo global cache ($size_formatted)"
+                print_warning "  - Rebuilt on next: turbo build"
+                if ! confirm "Delete Turborepo cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Turborepo cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Turborepo cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        jest_cache)
+            log_info "Cleaning Jest cache..."
+            local dirs_to_delete=(); local total_size=0
+            while IFS= read -r d; do
+                dirs_to_delete+=("$d")
+                local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}'); [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024))
+            done < <(find /tmp -maxdepth 1 -name "jest-*" -type d 2>/dev/null)
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then log_info "No Jest cache found"; return 0; fi
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete ${#dirs_to_delete[@]} Jest cache dir(s) ($size_formatted)"
+                print_warning "  - Rebuilt on next test run"
+                if ! confirm "Delete Jest cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Jest cache ($size_formatted)"
+            fi
+            for d in "${dirs_to_delete[@]}"; do rm -rf "$d" 2>/dev/null; done
+            log_success "Deleted Jest cache"
+            return 0
+            ;;
+
+        playwright_cache)
+            log_info "Cleaning Playwright browser cache..."
+            local path
+            if is_macos; then path="$(get_user_home)/Library/Caches/ms-playwright"
+            else path="$(get_user_home)/.cache/ms-playwright"; fi
+            if [[ ! -e "$path" ]]; then log_info "Playwright cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Playwright browser cache ($size_formatted)"
+                print_warning "  - Browsers re-downloaded with: npx playwright install"
+                if ! confirm "Delete Playwright cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Playwright cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Playwright cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        cypress_cache)
+            log_info "Cleaning Cypress cache..."
+            local path="$(get_user_home)/.cache/Cypress"
+            if [[ ! -e "$path" ]]; then log_info "Cypress cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Cypress cache ($size_formatted)"
+                print_warning "  - Binary re-downloaded with: npx cypress install"
+                if ! confirm "Delete Cypress cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Cypress cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Cypress cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        pnpm_store)
+            log_info "Cleaning pnpm store..."
+            local path="$(get_user_home)/.pnpm-store"
+            if [[ ! -e "$path" ]]; then log_info "pnpm store not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete pnpm global store ($size_formatted)"
+                print_warning "  - All pnpm projects will re-download packages on next install"
+                if ! confirm "Delete pnpm store? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting pnpm store ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted pnpm store" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        bun_cache)
+            log_info "Cleaning Bun cache..."
+            local path="$(get_user_home)/.bun/install/cache"
+            if [[ ! -e "$path" ]]; then log_info "Bun cache not found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Bun install cache ($size_formatted)"
+                print_warning "  - Packages re-downloaded with: bun install"
+                if ! confirm "Delete Bun cache? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting Bun cache ($size_formatted)"
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Bun cache" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        android_project_builds)
+            log_info "Cleaning Android project build outputs..."
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code")
+            local dirs_to_delete=(); local total_size=0
+            for base in "${search_paths[@]}"; do
+                [[ ! -d "$base" ]] && continue
+                while IFS= read -r d; do
+                    dirs_to_delete+=("$d")
+                    local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}'); [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024))
+                done < <(find "$base" -maxdepth 6 -type d -name "build" -path "*/app/build" 2>/dev/null | head -20)
+            done
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then log_info "No Android project build dirs found"; return 0; fi
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete ${#dirs_to_delete[@]} Android build dir(s) ($size_formatted)"
+                print_warning "  - Rebuilt with: ./gradlew build (or cd android && ./gradlew build)"
+                if ! confirm "Delete Android project builds? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting ${#dirs_to_delete[@]} Android build dir(s) ($size_formatted)"
+            fi
+            for d in "${dirs_to_delete[@]}"; do rm -rf "$d" 2>/dev/null && log_debug "Deleted: $d" || log_warn "Failed: $d"; done
+            log_success "Deleted Android project build dirs"
+            return 0
+            ;;
+
+        ios_project_builds)
+            log_info "Cleaning iOS project build outputs..."
+            local search_paths=("$(get_user_home)/dev" "$(get_user_home)/projects" "$(get_user_home)/workspace" "$(get_user_home)/code")
+            local dirs_to_delete=(); local total_size=0
+            for base in "${search_paths[@]}"; do
+                [[ ! -d "$base" ]] && continue
+                while IFS= read -r d; do
+                    dirs_to_delete+=("$d")
+                    local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}'); [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024))
+                done < <(find "$base" -maxdepth 6 -type d \( -path "*/ios/build" -o -path "*/Build/Products" \) 2>/dev/null | head -20)
+            done
+            if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then log_info "No iOS project build dirs found"; return 0; fi
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete ${#dirs_to_delete[@]} iOS build dir(s) ($size_formatted)"
+                print_warning "  - Rebuilt via Xcode or: npx react-native run-ios"
+                if ! confirm "Delete iOS project builds? (y/N)" "N"; then return 1; fi
+            else
+                log_info "Deleting ${#dirs_to_delete[@]} iOS build dir(s) ($size_formatted)"
+            fi
+            for d in "${dirs_to_delete[@]}"; do rm -rf "$d" 2>/dev/null && log_debug "Deleted: $d" || log_warn "Failed: $d"; done
+            log_success "Deleted iOS project build dirs"
+            return 0
+            ;;
+
+        android_avd)
+            # HIGH RISK — always confirm, even in force/skip mode
+            log_info "Android AVD deletion requested..."
+            local path="$(get_user_home)/.android/avd"
+            if [[ ! -e "$path" ]]; then log_info "No Android AVDs found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            print_warning ""
+            print_warning "╔══════════════════════════════════════════╗"
+            print_warning "║  ATENCAO: APAGAR EMULADORES ANDROID      ║"
+            print_warning "╚══════════════════════════════════════════╝"
+            print_warning ""
+            print_warning "Isso vai apagar TODOS os AVDs (emuladores Android)."
+            print_info "Tamanho: $size_formatted"
+            print_warning "  - Os emuladores serao removidos permanentemente"
+            print_warning "  - Precisara criar novos AVDs no Android Studio"
+            print_warning "  - Dados e apps instalados nos emuladores serao perdidos"
+            print_warning ""
+            print_info "Use apenas se quiser comecar do zero com os emuladores."
+            print_warning ""
+            local response
+            read -r -p "Digite 'yes' para confirmar (qualquer outra coisa cancela): " response </dev/tty
+            if [[ "$response" != "yes" ]]; then
+                log_info "User cancelled Android AVD deletion"
+                return 1
+            fi
+            rm -rf "$path" 2>/dev/null && log_success "Deleted Android AVDs" || { log_warn "Failed to delete AVDs"; return 1; }
+            return 0
+            ;;
+
+        android_sdk_old)
+            # HIGH RISK — always confirm, even in force/skip mode
+            log_info "Android SDK platforms deletion requested..."
+            local base="$(get_user_home)/Library/Android/sdk/platforms"
+            if [[ ! -d "$base" ]]; then log_info "No Android SDK platforms found"; return 0; fi
+            local -a versions=()
+            while IFS= read -r d; do versions+=("$(basename "$d")"); done < <(find "$base" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort)
+            if [[ ${#versions[@]} -eq 0 ]]; then log_info "No SDK platform versions found"; return 0; fi
+            local sz=$(du -sk "$base" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            print_warning ""
+            print_warning "╔══════════════════════════════════════════╗"
+            print_warning "║  ATENCAO: APAGAR ANDROID SDK PLATFORMS   ║"
+            print_warning "╚══════════════════════════════════════════╝"
+            print_warning ""
+            print_info "Versoes encontradas:"
+            for v in "${versions[@]}"; do print_info "  - $v"; done
+            print_warning ""
+            print_warning "Tamanho total: $size_formatted"
+            print_warning "  - TODOS os SDK platforms serao removidos"
+            print_warning "  - Projetos que dependem de versoes especificas podem nao compilar"
+            print_warning "  - Precisara reinstalar via Android Studio > SDK Manager"
+            print_warning ""
+            print_info "Use apenas se quiser limpar e reinstalar o SDK do zero."
+            print_warning ""
+            local response
+            read -r -p "Digite 'yes' para confirmar (qualquer outra coisa cancela): " response </dev/tty
+            if [[ "$response" != "yes" ]]; then
+                log_info "User cancelled Android SDK platforms deletion"
+                return 1
+            fi
+            rm -rf "$base" 2>/dev/null && log_success "Deleted Android SDK platforms" || { log_warn "Failed"; return 1; }
+            return 0
+            ;;
+
+        ios_simulator_devices)
+            # HIGH RISK — always confirm, even in force/skip mode
+            if ! is_macos; then return 0; fi
+            log_info "iOS Simulator Devices deletion requested..."
+            local path="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
+            if [[ ! -e "$path" ]]; then log_info "No iOS Simulator Devices found"; return 0; fi
+            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
+            local total_size=$((sz * 1024))
+            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+            print_warning ""
+            print_warning "╔══════════════════════════════════════════╗"
+            print_warning "║  ATENCAO: APAGAR SIMULADORES iOS         ║"
+            print_warning "╚══════════════════════════════════════════╝"
+            print_warning ""
+            print_warning "Isso vai apagar TODOS os simuladores iOS instalados."
+            print_info "Tamanho: $size_formatted"
+            print_warning "  - Todos os simuladores serao removidos permanentemente"
+            print_warning "  - Apps instalados nos simuladores serao perdidos"
+            print_warning "  - O Xcode vai recriar os simuladores padrao automaticamente"
+            print_warning "  - Simuladores customizados precisarao ser recriados manualmente"
+            print_warning ""
+            print_info "Use apenas se quiser limpar todos os simuladores e comecar do zero."
+            print_warning ""
+            local response
+            read -r -p "Digite 'yes' para confirmar (qualquer outra coisa cancela): " response </dev/tty
+            if [[ "$response" != "yes" ]]; then
+                log_info "User cancelled iOS Simulator Devices deletion"
+                return 1
+            fi
+            if command -v xcrun >/dev/null 2>&1; then
+                xcrun simctl shutdown all 2>/dev/null || true
+                xcrun simctl delete all 2>/dev/null || true
+            else
+                rm -rf "$path" 2>/dev/null
+            fi
+            log_success "Deleted iOS Simulator Devices"
             return 0
             ;;
     esac
