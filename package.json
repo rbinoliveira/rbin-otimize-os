@@ -1,0 +1,40 @@
+{
+  "name": "rbin-otimize-os",
+  "version": "1.0.0",
+  "description": "Otimizacao de sistema operacional — memoria, CPU e disco (macOS e Linux)",
+  "bin": {
+    "rbin-otimize-os": "bin/cli.sh"
+  },
+  "scripts": {
+    "prepublishOnly": "chmod +x bin/cli.sh run.sh mac/*.sh linux/*.sh scripts/*.sh lib/*.sh 2>/dev/null || true"
+  },
+  "files": [
+    "bin/",
+    "run.sh",
+    "mac/",
+    "linux/",
+    "lib/",
+    "config/",
+    "scripts/"
+  ],
+  "keywords": [
+    "disk-cleanup",
+    "memory",
+    "cpu",
+    "optimization",
+    "macos",
+    "linux",
+    "cli",
+    "developer-tools"
+  ],
+  "author": "Rubens de Oliveira",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rbinoliveira/rbin-otimize-os.git"
+  },
+  "preferGlobal": true,
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
