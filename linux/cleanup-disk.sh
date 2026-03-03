@@ -17,6 +17,7 @@ VERBOSE=false
 QUIET=false
 FORCE=false
 MIN_AGE_DAYS=0
+HOME_OVERRIDE="${HOME_OVERRIDE:-}"   # used by lib/cleanup_preview.sh (set -u safe)
 
 # ============ Library Dependencies ============
 if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
@@ -159,8 +160,16 @@ _run_categories() {
         i=$((i+1))
         echo -e "  ${C_DIM}[$i/$total]${C_RESET} Limpando ${C_WHITE}${cat}${C_RESET}..."
         set +e
-        delete_category_files "$cat" "$MIN_AGE_DAYS" >> "${LOG_FILE:-/dev/null}" 2>&1
-        local rc=$?
+        case "$cat" in
+            android_avd|android_sdk_old)
+                delete_category_files "$cat" "$MIN_AGE_DAYS" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"
+                rc=${PIPESTATUS[0]}
+                ;;
+            *)
+                delete_category_files "$cat" "$MIN_AGE_DAYS" >> "${LOG_FILE:-/dev/null}" 2>&1
+                rc=$?
+                ;;
+        esac
         set -e
         if [[ $rc -eq 0 ]]; then
             echo -e "  ${C_GREEN}✓${C_RESET} ${cat}"
@@ -329,14 +338,7 @@ run_wizard() {
     echo -e "${C_DIM}  Use apenas para comecar do zero com os emuladores.${C_RESET}"
     echo ""
     if _ask "Apagar emuladores Android?" "force_no"; then
-        local avd_resp
-        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os AVDs:${C_RESET}"
-        read -r avd_resp </dev/tty
-        if [[ "$avd_resp" == "yes" ]]; then
-            selected+=(android_avd)
-        else
-            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
-        fi
+        selected+=(android_avd)
     fi
 
     # ------------------------------------------------------------------
@@ -350,14 +352,7 @@ run_wizard() {
     echo -e "${C_DIM}  Use apenas para limpar e reinstalar o SDK do zero.${C_RESET}"
     echo ""
     if _ask "Apagar Android SDK Platforms?" "force_no"; then
-        local sdk_resp
-        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os SDK platforms:${C_RESET}"
-        read -r sdk_resp </dev/tty
-        if [[ "$sdk_resp" == "yes" ]]; then
-            selected+=(android_sdk_old)
-        else
-            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
-        fi
+        selected+=(android_sdk_old)
     fi
 
     # ------------------------------------------------------------------

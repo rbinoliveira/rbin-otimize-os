@@ -223,17 +223,17 @@ draw_menu() {
     _box_line "" "$inner"
 
     # Option 2
-    local opt2="${C_BOLD}${C_WHITE}  [2]  Analisar Uso de Disco${C_RESET}"
+    local opt2="${C_BOLD}${C_WHITE}  [2]  Maiores Consumidores de Espaco${C_RESET}"
     _box_line "$opt2" "$inner"
-    local opt2d="${C_DIM}       Visualiza categorias e arquivos grandes${C_RESET}"
+    local opt2d="${C_DIM}       Mostra pastas e arquivos que mais ocupam disco${C_RESET}"
     _box_line "$opt2d" "$inner"
 
     _box_line "" "$inner"
 
     # Option 3
-    local opt3="${C_BOLD}${C_WHITE}  [3]  Otimizar Espaco em Disco${C_RESET}"
+    local opt3="${C_BOLD}${C_WHITE}  [3]  Analisar e Limpar Disco${C_RESET}"
     _box_line "$opt3" "$inner"
-    local opt3d="${C_DIM}       Remove caches, logs e arquivos desnecessarios${C_RESET}"
+    local opt3d="${C_DIM}       Analisa caches por categoria e oferece limpeza${C_RESET}"
     _box_line "$opt3d" "$inner"
 
     _box_line "" "$inner"
@@ -338,9 +338,9 @@ Opcoes:
   --version        Exibe versao
 
 Menu interativo com 3 operacoes:
-  1) Melhorar Performance    — limpa memoria e otimiza CPU
-  2) Analisar Uso de Disco   — analise por categoria
-  3) Otimizar Espaco Disco   — remove arquivos desnecessarios
+  1) Melhorar Performance          — limpa memoria e otimiza CPU
+  2) Maiores Consumidores de Espaco — pastas e arquivos viloes
+  3) Analisar e Limpar Disco        — analise por categoria + wizard de limpeza
 EOF
 }
 

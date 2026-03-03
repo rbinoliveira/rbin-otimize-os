@@ -1,552 +1,253 @@
 #!/usr/bin/env bash
 
-# macOS Disk Analysis Script
-# Version: 1.0.0
-# Description: Analyze disk usage and identify cleanup opportunities
+# macOS — Maiores Consumidores de Espaço (Vilões)
+# Version: 2.0.0
+# Bash 3 compatible
 
 set -euo pipefail
 
-SCRIPT_VERSION="1.0.0"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LOG_DIR="${HOME}/.os-optimize/logs"
-LOG_FILE=""
-
 DRY_RUN=false
-VERBOSE=false
-QUIET=false
-ITEMS_COUNT=20
+for arg in "$@"; do
+    case "$arg" in --dry-run|-n) DRY_RUN=true ;; esac
+done
 
-# ============ Library Dependencies ============
-if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
-    source "${PROJECT_ROOT}/lib/common.sh"
+# ============ Colors ============
+
+if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    R=$(tput sgr0); B=$(tput bold)
+    DIM=$(tput dim 2>/dev/null || printf '')
+    GREEN=$(tput setaf 2); YELLOW=$(tput setaf 3); RED=$(tput setaf 1)
+    BLUE=$(tput setaf 4); CYAN=$(tput setaf 6); WHITE=$(tput setaf 7)
+    TERM_COLS=$(tput cols 2>/dev/null || echo 72)
 else
-    echo "Error: lib/common.sh not found" >&2
-    exit 1
+    R='\033[0m'; B='\033[1m'; DIM='\033[2m'
+    GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
+    BLUE='\033[0;34m'; CYAN='\033[0;36m'; WHITE='\033[0;37m'
+    TERM_COLS=72
 fi
 
-if [[ -f "${PROJECT_ROOT}/lib/disk_analysis.sh" ]]; then
-    source "${PROJECT_ROOT}/lib/disk_analysis.sh"
-else
-    echo "Error: lib/disk_analysis.sh not found" >&2
-    exit 1
-fi
+[[ $TERM_COLS -gt 80 ]] && WIDTH=80 || WIDTH=$TERM_COLS
+BAR_MAX=24
+INNER=$(( WIDTH - 2 ))
 
-if [[ -f "${PROJECT_ROOT}/lib/cleanup_preview.sh" ]]; then
-    source "${PROJECT_ROOT}/lib/cleanup_preview.sh"
-else
-    echo "Error: lib/cleanup_preview.sh not found" >&2
-    exit 1
-fi
+# ============ Box Helpers ============
 
-# ============ Logging Initialization ============
+_line() {
+    local content="$1" inner=$2
+    local visible
+    visible=$(printf '%s' "$content" | sed 's/\x1b\[[0-9;]*m//g')
+    local pad=$(( inner - ${#visible} ))
+    [[ $pad -lt 0 ]] && pad=0
+    printf '║%s%*s║\n' "$content" "$pad" ''
+}
+_top()   { printf '╔'; printf '═%.0s' $(seq 1 "$1"); printf '╗\n'; }
+_sep()   { printf '╠'; printf '═%.0s' $(seq 1 "$1"); printf '╣\n'; }
+_bot()   { printf '╚'; printf '═%.0s' $(seq 1 "$1"); printf '╝\n'; }
+_blank() { _line "" "$INNER"; }
 
-init_logging() {
-    if mkdir -p "$LOG_DIR" 2>/dev/null; then
-        chmod 755 "$LOG_DIR" 2>/dev/null || true
-        local timestamp=$(date +%Y%m%d-%H%M%S)
-        LOG_FILE="${LOG_DIR}/analyze-disk-${timestamp}.log"
+# ============ Helpers ============
 
-        {
-            echo "=========================================="
-            echo "macOS Disk Analysis Script - Log"
-            echo "=========================================="
-            echo "Timestamp: $(date)"
-            echo "macOS Version: $(sw_vers -productVersion 2>/dev/null || echo 'unknown')"
-            echo "Hostname: $(hostname 2>/dev/null || echo 'unknown')"
-            echo "User: $(whoami 2>/dev/null || echo 'unknown')"
-            echo "Script Version: $SCRIPT_VERSION"
-            echo "Flags: DRY_RUN=$DRY_RUN, VERBOSE=$VERBOSE, QUIET=$QUIET, ITEMS=$ITEMS_COUNT"
-            echo "=========================================="
-            echo ""
-        } >> "$LOG_FILE" 2>/dev/null || true
-
-        log_info "Logging initialized: $LOG_FILE"
-        return 0
-    else
-        print_warning "Cannot create log directory: $LOG_DIR (logging disabled)"
-        return 1
+_human() {
+    local b=$1
+    if   [[ $b -ge 1073741824 ]]; then awk -v b="$b" 'BEGIN{printf "%.1f GB",b/1073741824}'
+    elif [[ $b -ge 1048576    ]]; then awk -v b="$b" 'BEGIN{printf "%.0f MB",b/1048576}'
+    elif [[ $b -ge 1024       ]]; then awk -v b="$b" 'BEGIN{printf "%.0f KB",b/1024}'
+    else echo "${b} B"
     fi
 }
 
-# ============ Argument Parsing ============
+_bar() {
+    local bytes=$1 max_bytes=$2
+    local filled=0
+    [[ $max_bytes -gt 0 ]] && filled=$(( bytes * BAR_MAX / max_bytes ))
+    [[ $filled -gt $BAR_MAX ]] && filled=$BAR_MAX
+    local empty=$(( BAR_MAX - filled ))
 
-parse_arguments() {
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --dry-run|-n)
-                DRY_RUN=true
-                shift
-                ;;
-            --verbose|-v)
-                VERBOSE=true
-                shift
-                ;;
-            --quiet|-q)
-                QUIET=true
-                shift
-                ;;
-            --items)
-                ITEMS_COUNT="$2"
-                shift 2
-                ;;
-            --items=*)
-                ITEMS_COUNT="${1#*=}"
-                shift
-                ;;
-            --audit)
-                GENERATE_AUDIT=true
-                shift
-                ;;
-            --mode)
-                CLEANUP_MODE="$2"
-                shift 2
-                ;;
-            --mode=*)
-                CLEANUP_MODE="${1#*=}"
-                shift
-                ;;
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                show_help
-                exit 1
-                ;;
-        esac
+    local color=$GREEN
+    [[ $filled -ge $(( BAR_MAX * 35 / 100 )) ]] && color=$YELLOW
+    [[ $filled -ge $(( BAR_MAX * 70 / 100 )) ]] && color=$RED
+
+    local bar="${color}"
+    local i
+    for (( i=0; i<filled; i++ )); do bar+='█'; done
+    bar+="${DIM}"
+    for (( i=0; i<empty; i++ )); do bar+='░'; done
+    bar+="${R}"
+    printf '%s' "$bar"
+}
+
+_disk_overview() {
+    local total_kb used_kb avail_kb
+    total_kb=$(df -k / 2>/dev/null | awk 'NR==2{print $2}')
+    used_kb=$(df -k  / 2>/dev/null | awk 'NR==2{print $3}')
+    avail_kb=$(df -k / 2>/dev/null | awk 'NR==2{print $4}')
+
+    local total_b=$(( total_kb * 1024 ))
+    local used_b=$(( used_kb * 1024 ))
+    local avail_b=$(( avail_kb * 1024 ))
+
+    local total_h used_h avail_h
+    total_h=$(_human "$total_b")
+    used_h=$(_human "$used_b")
+    avail_h=$(_human "$avail_b")
+
+    local pct=0
+    [[ $total_kb -gt 0 ]] && pct=$(( used_kb * 100 / total_kb ))
+    local filled=$(( pct * BAR_MAX / 100 ))
+    [[ $filled -gt $BAR_MAX ]] && filled=$BAR_MAX
+    local empty=$(( BAR_MAX - filled ))
+
+    local bar_color=$GREEN
+    [[ $pct -ge 70 ]] && bar_color=$YELLOW
+    [[ $pct -ge 90 ]] && bar_color=$RED
+
+    local bar="${bar_color}"
+    local i
+    for (( i=0; i<filled; i++ )); do bar+='█'; done
+    bar+="${DIM}"
+    for (( i=0; i<empty;  i++ )); do bar+='░'; done
+    bar+="${R}"
+
+    _line "  ${B}${WHITE}Disco${R}  ${bar}  ${used_h} / ${total_h}  ${DIM}(${avail_h} livre)${R}" "$INNER"
+}
+
+# ============ Spinner ============
+
+_SPIN_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+_SPIN_IDX=0
+
+_spin_tick() {
+    local ch="${_SPIN_CHARS:$_SPIN_IDX:1}"
+    printf '\r  %s  %s' "$ch" "$1"
+    _SPIN_IDX=$(( (_SPIN_IDX + 1) % 10 ))
+}
+_spin_clear() { printf '\r\033[2K'; }
+
+# ============ Scan ============
+
+SCAN_DIR="$(mktemp -d)"
+trap 'rm -rf "$SCAN_DIR"' EXIT
+
+# Scan top-level dirs in a given root, write results to SCAN_DIR/<label>_<idx>
+_scan_root() {
+    local root="$1" prefix="$2"
+    local idx=0
+    while IFS= read -r -d '' entry; do
+        local name; name=$(basename "$entry")
+        # Skip hidden dot-dirs except a few known large ones
+        if [[ "$name" == .* ]]; then
+            case "$name" in
+                .npm|.yarn|.pnpm*|.nvm|.gradle|.android|.expo|.turbo|\
+                .bun|.cache|.gem|.bundle|.pub-cache|.Trash) ;;
+                *) continue ;;
+            esac
+        fi
+        (
+            bytes=$( { du -sk "$entry" 2>/dev/null || true; } \
+                | awk 'NR==1{print $1*1024; exit} END{if(NR==0) print 0}' )
+            printf '%s|%s|%s\n' "$bytes" "$name" "$entry" \
+                > "${SCAN_DIR}/${prefix}_$(printf '%04d' $idx)"
+        ) &
+        idx=$(( idx + 1 ))
+    done < <(find "$root" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+}
+
+_scan_all() {
+    # Home top-level
+    _scan_root "$HOME" "home"
+    # Library sub-dirs (many large caches live here)
+    _scan_root "$HOME/Library" "lib"
+
+    local total_jobs
+    total_jobs=$(jobs -p | wc -l | tr -d ' ')
+    local done_count=0
+
+    while true; do
+        done_count=$(ls "$SCAN_DIR" 2>/dev/null | wc -l | tr -d ' ')
+        _spin_tick "Escaneando... (${done_count} itens)"
+        local running
+        running=$(jobs -rp 2>/dev/null | wc -l | tr -d ' ')
+        [[ $running -eq 0 ]] && break
+        sleep 0.1
     done
-    
-    # Validate cleanup mode if provided
-    if [[ -n "$CLEANUP_MODE" ]] && [[ "$CLEANUP_MODE" != "safe" ]] && [[ "$CLEANUP_MODE" != "moderate" ]] && [[ "$CLEANUP_MODE" != "aggressive" ]]; then
-        print_error "Invalid cleanup mode: $CLEANUP_MODE (must be: safe, moderate, or aggressive)"
-        exit 1
-    fi
-
-    # Validate ITEMS_COUNT
-    if ! [[ "$ITEMS_COUNT" =~ ^[0-9]+$ ]] || [[ "$ITEMS_COUNT" -lt 1 ]]; then
-        print_error "Invalid items count: $ITEMS_COUNT (must be a positive integer)"
-        exit 1
-    fi
+    _spin_clear
+    wait
 }
 
-show_help() {
-    cat << EOF
-macOS Disk Analysis Script v$SCRIPT_VERSION
+# ============ Display ============
 
-Usage: $0 [OPTIONS]
+_display() {
+    # Collect all results, sort by bytes desc
+    local results_file="${SCAN_DIR}/_sorted"
 
-Options:
-    --dry-run, -n          Show what would be analyzed without executing
-    --verbose, -v          Show detailed output
-    --quiet, -q            Suppress non-error output
-    --items=N              Show top N items (default: 20)
-    --audit                Generate comprehensive disk audit report
-    --mode=MODE            Analysis mode: safe, moderate, or aggressive (default: safe)
-    -h, --help             Show this help message
+    # Merge all result files, sort numerically descending
+    cat "${SCAN_DIR}"/home_* "${SCAN_DIR}"/lib_* 2>/dev/null \
+        | sort -t'|' -k1 -rn \
+        > "$results_file"
 
-Description:
-    Analyzes disk usage and identifies cleanup opportunities by:
-    - Analyzing categorized disk usage (caches, logs, downloads, etc.)
-    - Showing top N largest files and folders
-    - Identifying cleanup opportunities
+    # Find max for bar scaling (top entry)
+    local max_bytes=1
+    max_bytes=$(head -1 "$results_file" 2>/dev/null | cut -d'|' -f1)
+    [[ -z "$max_bytes" || $max_bytes -eq 0 ]] && max_bytes=1
 
-EOF
+    clear 2>/dev/null || printf '\033[2J\033[H'
+
+    _top "$INNER"
+    _line "  ${B}${CYAN}Maiores Consumidores de Espaço${R}  ${DIM}macOS $(sw_vers -productVersion 2>/dev/null)${R}" "$INNER"
+    _sep "$INNER"
+    _disk_overview
+    _sep "$INNER"
+    _blank
+
+    local lbl_pad=26 size_pad=8
+    local count=0
+    local rank=1
+
+    while IFS='|' read -r bytes name path; do
+        [[ -z "$bytes" || $bytes -eq 0 ]] && continue
+        [[ $count -ge 20 ]] && break
+
+        local h; h=$(_human "$bytes")
+        local bar; bar=$(_bar "$bytes" "$max_bytes")
+
+        # Rank color
+        local rank_color=$WHITE
+        [[ $rank -le 3 ]] && rank_color=$RED
+        [[ $rank -ge 4 && $rank -le 8 ]] && rank_color=$YELLOW
+
+        # Truncate name
+        local lbl="$name"
+        [[ ${#lbl} -gt $lbl_pad ]] && lbl="${lbl:0:$((lbl_pad-1))}…"
+
+        local row
+        row="  ${rank_color}$(printf '%2d' $rank)${R}  ${WHITE}$(printf '%-*s' "$lbl_pad" "$lbl")${R}  ${bar}  $(printf '%*s' "$size_pad" "$h")"
+        _line "$row" "$INNER"
+
+        rank=$(( rank + 1 ))
+        count=$(( count + 1 ))
+    done < "$results_file"
+
+    _blank
+    _bot "$INNER"
 }
 
-# ============ Disk Analysis Functions ============
+# ============ Main ============
 
-get_top_items() {
-    local root_path="${1:-${HOME}}"
-    local count="${2:-20}"
-    local items=()
-
-    print_info "Scanning for largest items in $root_path..."
-    print_info "This may take a moment for large directories..."
-
-    # Find largest directories (optimized - limit depth and use timeout)
-    if command -v du >/dev/null 2>&1; then
-        # Use du for top-level directories only (much faster)
-        # Limit to depth 1 to avoid scanning entire directory tree
-        local dirs_found=0
-        while IFS= read -r line && [[ $dirs_found -lt $count ]]; do
-            [[ -z "$line" ]] && continue
-            local size=$(echo "$line" | awk '{print $1}')
-            local path=$(echo "$line" | awk '{print $2}')
-            # Skip if path is the root itself
-            [[ "$path" == "$root_path" ]] && continue
-            # Skip protected directories (.git, .claude, .cursor, .task-flow)
-            local basename_path=$(basename "$path")
-            if [[ "$basename_path" == ".git" ]] || \
-               [[ "$basename_path" == ".claude" ]] || \
-               [[ "$basename_path" == ".cursor" ]] || \
-               [[ "$basename_path" == ".task-flow" ]]; then
-                continue
-            fi
-            items+=("${size}|${path}|dir")
-            dirs_found=$((dirs_found + 1))
-        done < <(
-            if command -v timeout >/dev/null 2>&1; then
-                timeout 30 du -h -d 1 "$root_path" 2>/dev/null | sort -rh | head -n $((count * 2))
-            elif command -v gtimeout >/dev/null 2>&1; then
-                gtimeout 30 du -h -d 1 "$root_path" 2>/dev/null | sort -rh | head -n $((count * 2))
-            else
-                # Fallback: limit results immediately to prevent hanging
-                du -h -d 1 "$root_path" 2>/dev/null | sort -rh | head -n $((count * 2))
-            fi
-        )
-
-        # Find largest files (optimized - use du on directories, then find largest files within)
-        # Strategy: Find largest directories first, then find largest files within those directories
-        # This avoids scanning the entire home directory
-
-        # Get top directories by size (already have this from above)
-        # Now find largest files within the largest directories
-        local files_found=0
-        local top_dirs=()
-
-        # Collect top directories (excluding the root itself)
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            local dir_path=$(echo "$line" | awk -F'|' '{print $2}')
-            [[ "$dir_path" == "$root_path" ]] && continue
-            [[ -d "$dir_path" ]] && top_dirs+=("$dir_path")
-        done < <(printf '%s\n' "${items[@]}" | grep "|dir$" | head -10)
-
-        # Find largest files in top directories (limit to prevent hanging)
-        for dir in "${top_dirs[@]}"; do
-            [[ $files_found -ge $count ]] && break
-            [[ ! -d "$dir" ]] && continue
-
-            # Use find with very limited scope and timeout
-            while IFS= read -r file && [[ $files_found -lt $count ]]; do
-                [[ -z "$file" ]] || [[ ! -f "$file" ]] && continue
-
-                # Get file size using stat (much faster than du)
-                local size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
-                # Only include files larger than 50MB to focus on truly large files
-                if [[ "$size" =~ ^[0-9]+$ ]] && [[ $size -gt 52428800 ]]; then
-                    # Convert to human-readable format
-                    local size_mb=$((size / 1024 / 1024))
-                    if [[ $size_mb -ge 1024 ]]; then
-                        local size_gb=$(awk "BEGIN {printf \"%.2f\", $size / 1073741824}")
-                        local size_human="${size_gb}G"
-                    else
-                        local size_human="${size_mb}M"
-                    fi
-                    items+=("${size_human}|${file}|file")
-                    files_found=$((files_found + 1))
-                fi
-            done < <(
-                if command -v timeout >/dev/null 2>&1; then
-                    timeout 10 find "$dir" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \) -prune -o -maxdepth 2 -type f -size +50M -print 2>/dev/null | head -20
-                elif command -v gtimeout >/dev/null 2>&1; then
-                    gtimeout 10 find "$dir" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \) -prune -o -maxdepth 2 -type f -size +50M -print 2>/dev/null | head -20
-                else
-                    # Fallback: use head immediately to limit results
-                    find "$dir" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \) -prune -o -maxdepth 2 -type f -size +50M -print 2>/dev/null | head -20
-                fi
-            )
-        done
-    fi
-
-    # Sort all items by size (convert human-readable sizes to bytes for sorting)
-    # Simple approach: sort by the size string (works for most cases)
-    printf '%s\n' "${items[@]}" | head -n $count
-}
-
-# Format size in MB or GB (user preference)
-format_size_mb() {
-    local bytes="$1"
-    
-    # Ensure bytes is a valid number
-    if ! [[ "$bytes" =~ ^[0-9]+$ ]]; then
-        echo "0 MB"
-        return
-    fi
-    
-    local size_mb=$((bytes / 1024 / 1024))
-
-    if [[ $size_mb -ge 1024 ]]; then
-        # If >= 1GB, show in GB (force LC_NUMERIC=C to use dot as decimal separator)
-        local size_gb=$(LC_NUMERIC=C awk "BEGIN {printf \"%.2f\", $bytes / 1073741824}")
-        echo "${size_gb} GB"
-    else
-        # Show in MB (force LC_NUMERIC=C to use dot as decimal separator)
-        local size_mb_float=$(LC_NUMERIC=C awk "BEGIN {printf \"%.2f\", $bytes / 1048576}")
-        echo "${size_mb_float} MB"
-    fi
-}
-
-display_categorized_analysis() {
-    print_info ""
-    print_info "=========================================="
-    print_info "Categorized Disk Usage Analysis"
-    print_info "=========================================="
-    print_info ""
-
-    local categories=$(get_disk_categories)
-    local total_size=0
-
-    printf "%-20s %-50s %15s %15s\n" "Category" "Path" "Size" "Files"
-    echo "--------------------------------------------------------------------------------"
-
-    for category in $categories; do
-        local path=$(get_category_path "$category")
-
-        if [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
-            continue
-        fi
-
-        local result=$(analyze_disk_usage "$path" "$category")
-        if [[ -n "$result" ]]; then
-            IFS='|' read -r cat_name path size size_formatted size_mb file_count dir_count <<< "$result"
-            local size_mb_formatted=$(format_size_mb "$size")
-            printf "%-20s %-50s %15s %15s\n" "$cat_name" "$path" "$size_mb_formatted" "$file_count"
-            total_size=$((total_size + size))
-        fi
-    done
-
-    echo "--------------------------------------------------------------------------------"
-
-    local total_formatted=$(format_size_mb "$total_size")
-    printf "%-20s %-50s %15s %15s\n" "TOTAL" "" "$total_formatted" ""
-    print_info ""
-}
-
-display_top_items() {
-    local count="$1"
-
-    print_info "=========================================="
-    print_info "Top $count Largest Items (Files & Folders)"
-    print_info "=========================================="
-    print_info ""
-
-    # Analyze home directory
-    local home_items=$(get_top_items "${HOME}" "$count")
-
-    printf "%-15s %-60s %10s\n" "Size" "Path" "Type"
-    echo "--------------------------------------------------------------------------------"
-
-    local item_count=0
-    while IFS='|' read -r size path type && [[ $item_count -lt $count ]]; do
-        # Truncate long paths
-        local display_path="$path"
-        if [[ ${#display_path} -gt 58 ]]; then
-            display_path="...${display_path: -55}"
-        fi
-
-        printf "%-15s %-60s %10s\n" "$size" "$display_path" "$type"
-        item_count=$((item_count + 1))
-    done <<< "$home_items"
-
-    print_info ""
-}
-
-display_cleanup_opportunities() {
-    print_info "=========================================="
-    print_info "Cleanup Opportunities"
-    print_info "=========================================="
-    print_info ""
-
-    local categories=$(get_cleanup_categories)
-    local opportunities=()
-
-    for category in $categories; do
-        local path=$(get_category_path "$category")
-
-        if [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
-            continue
-        fi
-
-        local result=$(analyze_disk_usage "$path" "$category")
-        if [[ -n "$result" ]]; then
-            IFS='|' read -r cat_name path size size_formatted size_mb file_count dir_count <<< "$result"
-
-            # Highlight if size is above threshold (100MB default)
-            if [[ $size_mb -ge ${HIGHLIGHT_THRESHOLD:-100} ]]; then
-                # Store size in bytes for proper formatting later
-                opportunities+=("$cat_name|$path|$size|$size_mb")
-            fi
-        fi
-    done
-
-    if [[ ${#opportunities[@]} -eq 0 ]]; then
-        print_info "No significant cleanup opportunities found."
-        print_info ""
-        return
-    fi
-
-    printf "%-20s %-50s %15s\n" "Category" "Path" "Size"
-    echo "--------------------------------------------------------------------------------"
-
-    for opp in "${opportunities[@]}"; do
-        IFS='|' read -r cat_name path size_bytes size_mb <<< "$opp"
-
-        # Truncate long paths
-        local display_path="$path"
-        if [[ ${#display_path} -gt 48 ]]; then
-            display_path="...${display_path: -45}"
-        fi
-
-        # Ensure size_bytes is a valid number (remove any formatting)
-        size_bytes=$(echo "$size_bytes" | tr -d ',' | tr -d ' ' | grep -oE '[0-9]+' || echo "0")
-        
-        # Format size to ensure it's human-readable
-        local display_size=$(format_size_mb "$size_bytes")
-
-        printf "%-20s %-50s %15s\n" "$cat_name" "$display_path" "$display_size"
-    done
-
-    print_info ""
-    print_info "Tip: Use cleanup-disk.sh to clean these categories"
-    print_info ""
-}
-
-# Generate comprehensive disk audit report
-generate_disk_audit_report() {
-    local report_file="${HOME}/.os-optimize/disk_audit_$(date +%Y%m%d_%H%M%S).txt"
-    local report_dir=$(dirname "$report_file")
-    
-    mkdir -p "$report_dir" 2>/dev/null || true
-    
-    {
-        echo "=========================================="
-        echo "DISK AUDIT REPORT"
-        echo "=========================================="
-        echo "Date: $(date)"
-        echo "User: $(whoami 2>/dev/null || echo 'unknown')"
-        echo "Hostname: $(hostname 2>/dev/null || echo 'unknown')"
-        echo "macOS Version: $(sw_vers -productVersion 2>/dev/null || echo 'unknown')"
-        echo ""
-        echo "=========================================="
-        echo "df -h (Disk Usage)"
-        echo "=========================================="
-        df -h
-        echo ""
-        echo "=========================================="
-        echo "Top 10 Largest Directories in /Users"
-        echo "=========================================="
-        du -sh /Users/* 2>/dev/null | sort -rh | head -10 || echo "Unable to scan /Users"
-        echo ""
-        echo "=========================================="
-        echo "Top 10 Largest Directories in Home"
-        echo "=========================================="
-        du -sh ~/* 2>/dev/null | sort -rh | head -10 || echo "Unable to scan home"
-        echo ""
-        echo "=========================================="
-        echo "Categorized Disk Usage Analysis"
-        echo "=========================================="
-    } > "$report_file" 2>/dev/null || true
-    
-    # Add categorized analysis
-    local categories=$(get_disk_categories)
-    {
-        printf "%-20s %-50s %15s %15s\n" "Category" "Path" "Size" "Files"
-        echo "--------------------------------------------------------------------------------"
-    } >> "$report_file" 2>/dev/null || true
-    
-    for category in $categories; do
-        local path=$(get_category_path "$category")
-        
-        if [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
-            continue
-        fi
-        
-        local result=$(analyze_disk_usage "$path" "$category")
-        if [[ -n "$result" ]]; then
-            IFS='|' read -r cat_name path size size_formatted size_mb file_count dir_count <<< "$result"
-            local size_mb_formatted=$(format_size_mb "$size")
-            printf "%-20s %-50s %15s %15s\n" "$cat_name" "$path" "$size_mb_formatted" "$file_count" >> "$report_file" 2>/dev/null || true
-        fi
-    done
-    
-    {
-        echo ""
-        echo "=========================================="
-        echo "Report saved to: $report_file"
-        echo "=========================================="
-    } >> "$report_file" 2>/dev/null || true
-    
-    echo "$report_file"
-}
-
-# Compare two audit reports
-compare_audit_reports() {
-    local before_file="$1"
-    local after_file="$2"
-    
-    if [[ ! -f "$before_file" ]] || [[ ! -f "$after_file" ]]; then
-        print_error "Both report files are required"
-        return 1
-    fi
-    
-    print_info "Comparing reports:"
-    print_info "  Before: $before_file"
-    print_info "  After:  $after_file"
-    print_info ""
-    
-    # Extract disk usage from reports
-    local before_usage=$(grep -A 20 "df -h" "$before_file" 2>/dev/null | grep -E "^/dev/" | head -1 | awk '{print $4}')
-    local after_usage=$(grep -A 20 "df -h" "$after_file" 2>/dev/null | grep -E "^/dev/" | head -1 | awk '{print $4}')
-    
-    if [[ -n "$before_usage" ]] && [[ -n "$after_usage" ]]; then
-        print_info "Disk space before: $before_usage"
-        print_info "Disk space after:  $after_usage"
-    fi
-}
-
-# Main execution
 main() {
-    # Parse arguments
-    parse_arguments "$@"
+    printf '\033[2J\033[H'
+    _top "$INNER"
+    _line "  ${B}${CYAN}Maiores Consumidores de Espaço${R}" "$INNER"
+    _sep "$INNER"
+    _blank
+    _line "  ${DIM}Escaneando diretórios, aguarde...${R}" "$INNER"
+    _blank
+    _bot "$INNER"
+    printf '\n'
 
-    # Initialize logging
-    init_logging
+    _scan_all
+    _display
 
-    # Validate macOS version
-    if ! validate_os; then
-        exit 1
-    fi
-
-    print_info "macOS Disk Analysis Script v$SCRIPT_VERSION"
-    print_info "=============================================="
-    print_info ""
-
-    if is_dry_run; then
-        print_warning "DRY-RUN MODE: No changes will be made"
-        print_info ""
-    fi
-
-    # Display categorized analysis
-    display_categorized_analysis
-
-    # Display top N largest items
-    display_top_items "$ITEMS_COUNT"
-
-    # Display cleanup opportunities
-    display_cleanup_opportunities
-
-    # Generate audit report if requested
-    if [[ "${GENERATE_AUDIT:-false}" == "true" ]]; then
-        print_info ""
-        print_info "Generating comprehensive disk audit report..."
-        local audit_file=$(generate_disk_audit_report)
-        if [[ -n "$audit_file" ]]; then
-            print_success "Audit report generated: $audit_file"
-        fi
-    fi
-
-    # Summary
-    print_info "=============================================="
-    print_success "Disk analysis completed!"
-    print_info ""
-
-    if [[ -n "$LOG_FILE" ]]; then
-        print_info "Log file: $LOG_FILE"
-    fi
+    printf '\n'
 }
 
-# Run main function
 main "$@"

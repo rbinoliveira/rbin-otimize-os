@@ -1311,7 +1311,13 @@ scan_cleanup_category() {
             ;;
 
         cypress_cache)
-            local path="$(get_user_home)/.cache/Cypress"
+            # macOS: ~/Library/Caches/Cypress  |  Linux: ~/.cache/Cypress
+            local path
+            if is_macos; then
+                path="$(get_user_home)/Library/Caches/Cypress"
+            else
+                path="$(get_user_home)/.cache/Cypress"
+            fi
             local total_size=0 file_count=0
             if [[ -e "$path" ]]; then
                 local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
@@ -1322,7 +1328,22 @@ scan_cleanup_category() {
             ;;
 
         pnpm_store)
-            local path="$(get_user_home)/.pnpm-store"
+            # macOS: ~/Library/pnpm/store (pnpm v7+) with fallback to ~/.pnpm-store
+            # Linux: ~/.local/share/pnpm/store with fallback to ~/.pnpm-store
+            local path
+            if is_macos; then
+                if [[ -d "$(get_user_home)/Library/pnpm/store" ]]; then
+                    path="$(get_user_home)/Library/pnpm/store"
+                else
+                    path="$(get_user_home)/.pnpm-store"
+                fi
+            else
+                if [[ -d "$(get_user_home)/.local/share/pnpm/store" ]]; then
+                    path="$(get_user_home)/.local/share/pnpm/store"
+                else
+                    path="$(get_user_home)/.pnpm-store"
+                fi
+            fi
             local total_size=0 file_count=0
             if [[ -e "$path" ]]; then
                 local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
@@ -4779,7 +4800,12 @@ delete_category_files() {
 
         cypress_cache)
             log_info "Cleaning Cypress cache..."
-            local path="$(get_user_home)/.cache/Cypress"
+            local path
+            if is_macos; then
+                path="$(get_user_home)/Library/Caches/Cypress"
+            else
+                path="$(get_user_home)/.cache/Cypress"
+            fi
             if [[ ! -e "$path" ]]; then log_info "Cypress cache not found"; return 0; fi
             local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
             local total_size=$((sz * 1024))
@@ -4797,7 +4823,20 @@ delete_category_files() {
 
         pnpm_store)
             log_info "Cleaning pnpm store..."
-            local path="$(get_user_home)/.pnpm-store"
+            local path
+            if is_macos; then
+                if [[ -d "$(get_user_home)/Library/pnpm/store" ]]; then
+                    path="$(get_user_home)/Library/pnpm/store"
+                else
+                    path="$(get_user_home)/.pnpm-store"
+                fi
+            else
+                if [[ -d "$(get_user_home)/.local/share/pnpm/store" ]]; then
+                    path="$(get_user_home)/.local/share/pnpm/store"
+                else
+                    path="$(get_user_home)/.pnpm-store"
+                fi
+            fi
             if [[ ! -e "$path" ]]; then log_info "pnpm store not found"; return 0; fi
             local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
             local total_size=$((sz * 1024))
@@ -4882,101 +4921,26 @@ delete_category_files() {
             ;;
 
         android_avd)
-            # HIGH RISK — always confirm, even in force/skip mode
             log_info "Android AVD deletion requested..."
             local path="$(get_user_home)/.android/avd"
             if [[ ! -e "$path" ]]; then log_info "No Android AVDs found"; return 0; fi
-            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
-            local total_size=$((sz * 1024))
-            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
-            print_warning ""
-            print_warning "╔══════════════════════════════════════════╗"
-            print_warning "║  ATENCAO: APAGAR EMULADORES ANDROID      ║"
-            print_warning "╚══════════════════════════════════════════╝"
-            print_warning ""
-            print_warning "Isso vai apagar TODOS os AVDs (emuladores Android)."
-            print_info "Tamanho: $size_formatted"
-            print_warning "  - Os emuladores serao removidos permanentemente"
-            print_warning "  - Precisara criar novos AVDs no Android Studio"
-            print_warning "  - Dados e apps instalados nos emuladores serao perdidos"
-            print_warning ""
-            print_info "Use apenas se quiser comecar do zero com os emuladores."
-            print_warning ""
-            local response
-            read -r -p "Digite 'yes' para confirmar (qualquer outra coisa cancela): " response </dev/tty
-            if [[ "$response" != "yes" ]]; then
-                log_info "User cancelled Android AVD deletion"
-                return 1
-            fi
             rm -rf "$path" 2>/dev/null && log_success "Deleted Android AVDs" || { log_warn "Failed to delete AVDs"; return 1; }
             return 0
             ;;
 
         android_sdk_old)
-            # HIGH RISK — always confirm, even in force/skip mode
             log_info "Android SDK platforms deletion requested..."
             local base="$(get_user_home)/Library/Android/sdk/platforms"
             if [[ ! -d "$base" ]]; then log_info "No Android SDK platforms found"; return 0; fi
-            local -a versions=()
-            while IFS= read -r d; do versions+=("$(basename "$d")"); done < <(find "$base" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort)
-            if [[ ${#versions[@]} -eq 0 ]]; then log_info "No SDK platform versions found"; return 0; fi
-            local sz=$(du -sk "$base" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
-            local total_size=$((sz * 1024))
-            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
-            print_warning ""
-            print_warning "╔══════════════════════════════════════════╗"
-            print_warning "║  ATENCAO: APAGAR ANDROID SDK PLATFORMS   ║"
-            print_warning "╚══════════════════════════════════════════╝"
-            print_warning ""
-            print_info "Versoes encontradas:"
-            for v in "${versions[@]}"; do print_info "  - $v"; done
-            print_warning ""
-            print_warning "Tamanho total: $size_formatted"
-            print_warning "  - TODOS os SDK platforms serao removidos"
-            print_warning "  - Projetos que dependem de versoes especificas podem nao compilar"
-            print_warning "  - Precisara reinstalar via Android Studio > SDK Manager"
-            print_warning ""
-            print_info "Use apenas se quiser limpar e reinstalar o SDK do zero."
-            print_warning ""
-            local response
-            read -r -p "Digite 'yes' para confirmar (qualquer outra coisa cancela): " response </dev/tty
-            if [[ "$response" != "yes" ]]; then
-                log_info "User cancelled Android SDK platforms deletion"
-                return 1
-            fi
             rm -rf "$base" 2>/dev/null && log_success "Deleted Android SDK platforms" || { log_warn "Failed"; return 1; }
             return 0
             ;;
 
         ios_simulator_devices)
-            # HIGH RISK — always confirm, even in force/skip mode
             if ! is_macos; then return 0; fi
             log_info "iOS Simulator Devices deletion requested..."
             local path="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
             if [[ ! -e "$path" ]]; then log_info "No iOS Simulator Devices found"; return 0; fi
-            local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}'); [[ ! "$sz" =~ ^[0-9]+$ ]] && sz=0
-            local total_size=$((sz * 1024))
-            local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
-            print_warning ""
-            print_warning "╔══════════════════════════════════════════╗"
-            print_warning "║  ATENCAO: APAGAR SIMULADORES iOS         ║"
-            print_warning "╚══════════════════════════════════════════╝"
-            print_warning ""
-            print_warning "Isso vai apagar TODOS os simuladores iOS instalados."
-            print_info "Tamanho: $size_formatted"
-            print_warning "  - Todos os simuladores serao removidos permanentemente"
-            print_warning "  - Apps instalados nos simuladores serao perdidos"
-            print_warning "  - O Xcode vai recriar os simuladores padrao automaticamente"
-            print_warning "  - Simuladores customizados precisarao ser recriados manualmente"
-            print_warning ""
-            print_info "Use apenas se quiser limpar todos os simuladores e comecar do zero."
-            print_warning ""
-            local response
-            read -r -p "Digite 'yes' para confirmar (qualquer outra coisa cancela): " response </dev/tty
-            if [[ "$response" != "yes" ]]; then
-                log_info "User cancelled iOS Simulator Devices deletion"
-                return 1
-            fi
             if command -v xcrun >/dev/null 2>&1; then
                 xcrun simctl shutdown all 2>/dev/null || true
                 xcrun simctl delete all 2>/dev/null || true
@@ -5003,6 +4967,27 @@ delete_category_files() {
     elif [[ -z "$path" ]] || [[ ! -e "$path" ]]; then
         log_warn "Category $category: path not found ($path)"
         return 1
+    fi
+
+    # Fast path for caches and logs: delete immediate children with rm -rf
+    # The generic handler below uses find|xargs|while-read which is broken for
+    # large directories (xargs echoes space-separated paths, breaking the loop).
+    # Also, deleting file-by-file leaves directories intact and running processes
+    # repopulate caches immediately.
+    if [[ "$category" == "caches" ]] || [[ "$category" == "logs" ]]; then
+        log_info "Cleaning $category at: $path"
+        local deleted=0 failed=0
+        while IFS= read -r -d '' entry; do
+            [[ -z "$entry" ]] && continue
+            if rm -rf "$entry" 2>/dev/null; then
+                deleted=$(( deleted + 1 ))
+            else
+                failed=$(( failed + 1 ))
+                log_warn "Could not remove: $entry"
+            fi
+        done < <(find "$path" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+        log_success "Removed $deleted items from $category ($failed could not be removed)"
+        return 0
     fi
 
     if [[ "$category" == "browser_trash" ]]; then

@@ -17,6 +17,7 @@ VERBOSE=false
 QUIET=false
 FORCE=false
 MIN_AGE_DAYS=0
+HOME_OVERRIDE="${HOME_OVERRIDE:-}"   # used by lib/cleanup_preview.sh (set -u safe)
 
 # ============ Library Dependencies ============
 if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
@@ -40,12 +41,14 @@ if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
     C_RESET=$(tput sgr0); C_BOLD=$(tput bold)
     C_GREEN=$(tput setaf 2); C_YELLOW=$(tput setaf 3)
     C_RED=$(tput setaf 1); C_CYAN=$(tput setaf 6)
+    C_BLUE=$(tput setaf 4)
     C_DIM=$(tput dim 2>/dev/null || echo '')
     C_WHITE=$(tput setaf 7)
 else
     C_RESET='\033[0m'; C_BOLD='\033[1m'; C_DIM='\033[2m'
     C_GREEN='\033[0;32m'; C_YELLOW='\033[1;33m'
     C_RED='\033[0;31m'; C_CYAN='\033[0;36m'; C_WHITE='\033[0;37m'
+    C_BLUE='\033[0;34m'
 fi
 
 # ============ Logging ============
@@ -159,8 +162,18 @@ _run_categories() {
         i=$((i+1))
         echo -e "  ${C_DIM}[$i/$total]${C_RESET} Limpando ${C_WHITE}${cat}${C_RESET}..."
         set +e
-        delete_category_files "$cat" "$MIN_AGE_DAYS" >> "${LOG_FILE:-/dev/null}" 2>&1
-        local rc=$?
+        # High-risk categories have their own interactive prompt — do NOT redirect
+        # output so the user can see it. All others go to the log file.
+        case "$cat" in
+            android_avd|ios_simulator_devices|android_sdk_old)
+                delete_category_files "$cat" "$MIN_AGE_DAYS" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"
+                rc=${PIPESTATUS[0]}
+                ;;
+            *)
+                delete_category_files "$cat" "$MIN_AGE_DAYS" >> "${LOG_FILE:-/dev/null}" 2>&1
+                rc=$?
+                ;;
+        esac
         set -e
         if [[ $rc -eq 0 ]]; then
             echo -e "  ${C_GREEN}✓${C_RESET} ${cat}"
@@ -308,14 +321,7 @@ run_wizard() {
     echo -e "${C_DIM}  Use apenas para comecar do zero com os emuladores.${C_RESET}"
     echo ""
     if _ask "Apagar emuladores Android?" "force_no"; then
-        local avd_resp
-        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os AVDs:${C_RESET}"
-        read -r avd_resp </dev/tty
-        if [[ "$avd_resp" == "yes" ]]; then
-            selected+=(android_avd)
-        else
-            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
-        fi
+        selected+=(android_avd)
     fi
 
     # ------------------------------------------------------------------
@@ -331,14 +337,7 @@ run_wizard() {
     echo -e "${C_DIM}  Use apenas para comecar do zero com os simuladores.${C_RESET}"
     echo ""
     if _ask "Apagar simuladores iOS?" "force_no"; then
-        local sim_resp
-        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os simuladores:${C_RESET}"
-        read -r sim_resp </dev/tty
-        if [[ "$sim_resp" == "yes" ]]; then
-            selected+=(ios_simulator_devices)
-        else
-            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
-        fi
+        selected+=(ios_simulator_devices)
     fi
 
     # ------------------------------------------------------------------
@@ -352,14 +351,7 @@ run_wizard() {
     echo -e "${C_DIM}  Use apenas para limpar e reinstalar o SDK do zero.${C_RESET}"
     echo ""
     if _ask "Apagar Android SDK Platforms?" "force_no"; then
-        local sdk_resp
-        echo -e "${C_RED}  CONFIRME: digite 'yes' para apagar todos os SDK platforms:${C_RESET}"
-        read -r sdk_resp </dev/tty
-        if [[ "$sdk_resp" == "yes" ]]; then
-            selected+=(android_sdk_old)
-        else
-            echo -e "  ${C_DIM}Cancelado.${C_RESET}"
-        fi
+        selected+=(android_sdk_old)
     fi
 
     # ------------------------------------------------------------------
@@ -398,6 +390,158 @@ run_wizard() {
     unset SKIP_CATEGORY_CONFIRM
 }
 
+# ============ Category Analysis (shown before wizard) ============
+
+_show_category_analysis() {
+    local analyze_script="${SCRIPT_DIR}/analyze-categories.sh"
+    # Inline category scan using the same lib already sourced
+    local categories="caches logs npm_cache yarn_cache pnpm_store bun_cache expo_cache \
+        turborepo_cache jest_cache playwright_cache cypress_cache \
+        derived_data xcode_logs swiftpm_cache carthage_cache \
+        pip_cache gem_cache ruby_bundler_cache nuget_cache \
+        homebrew_cache nvm_cache vscode_cache trash \
+        android_project_builds ios_project_builds"
+
+    # Colors already defined
+    local inner=$(( ${#C_RESET} > 0 ? 62 : 62 ))
+    local W=64; local INN=$(( W - 2 ))
+    local BAR=20
+
+    _abar() {
+        local b=$1 m=$2
+        local f=0; [[ $m -gt 0 ]] && f=$(( b * BAR / m ))
+        [[ $f -gt $BAR ]] && f=$BAR
+        local e=$(( BAR - f ))
+        local col=$C_GREEN
+        [[ $f -ge $(( BAR * 35 / 100 )) ]] && col=$C_YELLOW
+        [[ $f -ge $(( BAR * 70 / 100 )) ]] && col=$C_RED
+        local bar="${col}"
+        local i; for (( i=0; i<f; i++ )); do bar+='█'; done
+        bar+="${C_DIM}"; for (( i=0; i<e; i++ )); do bar+='░'; done
+        bar+="${C_RESET}"
+        printf '%s' "$bar"
+    }
+
+    _aline() {
+        local content="$1"
+        local visible; visible=$(printf '%s' "$content" | sed 's/\x1b\[[0-9;]*m//g')
+        local pad=$(( INN - ${#visible} )); [[ $pad -lt 0 ]] && pad=0
+        printf '║%s%*s║\n' "$content" "$pad" ''
+    }
+    _atop() { printf '╔'; printf '═%.0s' $(seq 1 $INN); printf '╗\n'; }
+    _asep() { printf '╠'; printf '═%.0s' $(seq 1 $INN); printf '╣\n'; }
+    _abot() { printf '╚'; printf '═%.0s' $(seq 1 $INN); printf '╝\n'; }
+
+    _ahuman() {
+        local b=$1
+        if   [[ $b -ge 1073741824 ]]; then awk -v b="$b" 'BEGIN{printf "%.1f GB",b/1073741824}'
+        elif [[ $b -ge 1048576    ]]; then awk -v b="$b" 'BEGIN{printf "%.0f MB",b/1048576}'
+        elif [[ $b -ge 1024       ]]; then awk -v b="$b" 'BEGIN{printf "%.0f KB",b/1024}'
+        else echo "${b} B"; fi
+    }
+
+    # Show scanning message
+    printf '╔'; printf '═%.0s' $(seq 1 $INN); printf '╗\n'
+    _aline "  ${C_BOLD}${C_CYAN}Analisando categorias...${C_RESET}"
+    printf '╚'; printf '═%.0s' $(seq 1 $INN); printf '╝\n'
+    printf '\n'
+
+    # Scan all categories (serial, with spinner)
+    local TMPF; TMPF=$(mktemp)
+    trap "rm -f '$TMPF'" RETURN
+
+    local max_bytes=1
+    local cat_results=()
+
+    for cat in $categories; do
+        local path; path=$(get_category_path "$cat" 2>/dev/null || true)
+        [[ -z "$path" || ! -e "$path" ]] && continue
+        local bytes
+        bytes=$( { du -sk "$path" 2>/dev/null || true; } \
+            | awk 'NR==1{print $1*1024; exit} END{if(NR==0) print 0}' )
+        [[ -z "$bytes" ]] && bytes=0
+        [[ $bytes -eq 0 ]] && continue
+        cat_results+=("${bytes}|${cat}|${path}")
+        [[ $bytes -gt $max_bytes ]] && max_bytes=$bytes
+    done
+
+    # Sort by size desc (bash 3 compatible bubble-ish via temp file)
+    printf '%s\n' "${cat_results[@]}" | sort -t'|' -k1 -rn > "$TMPF"
+
+    local grand=0
+
+    # Group headers in order
+    local groups="Sistema JS_TS Test iOS_Swift Python_Ruby Pkgs Misc"
+    local group_printed=""
+
+    _group_label() {
+        case "$1" in
+            Sistema)    echo "Sistema" ;;
+            JS_TS)      echo "JS / TS" ;;
+            Test)       echo "Build & Test" ;;
+            iOS_Swift)  echo "iOS / Swift" ;;
+            Python_Ruby) echo "Python · Ruby · .NET" ;;
+            Pkgs)       echo "Pkg Managers" ;;
+            Misc)       echo "Apps / Misc" ;;
+        esac
+    }
+
+    _cat_group() {
+        case "$1" in
+            caches|logs|trash)                              echo "Sistema" ;;
+            npm_cache|yarn_cache|pnpm_store|bun_cache|\
+            expo_cache|turborepo_cache)                     echo "JS_TS" ;;
+            jest_cache|playwright_cache|cypress_cache)      echo "Test" ;;
+            derived_data|xcode_logs|swiftpm_cache|\
+            carthage_cache|ios_project_builds)              echo "iOS_Swift" ;;
+            pip_cache|gem_cache|ruby_bundler_cache|\
+            nuget_cache)                                    echo "Python_Ruby" ;;
+            homebrew_cache|nvm_cache)                       echo "Pkgs" ;;
+            vscode_cache|android_project_builds)            echo "Misc" ;;
+            *)                                              echo "Misc" ;;
+        esac
+    }
+
+    printf '\r\033[2K'  # clear spinner line
+    _atop
+    _aline "  ${C_BOLD}${C_CYAN}Análise de Disco${C_RESET}  ${C_DIM}$(df -H / 2>/dev/null | awk 'NR==2{printf "%s livre de %s",$4,$2}')${C_RESET}"
+    _asep
+
+    for gkey in $groups; do
+        local glabel; glabel=$(_group_label "$gkey")
+        local group_rows="" group_bytes=0
+
+        while IFS='|' read -r bytes cat path; do
+            [[ "$(_cat_group "$cat")" != "$gkey" ]] && continue
+            local h; h=$(_ahuman "$bytes")
+            local bar; bar=$(_abar "$bytes" "$max_bytes")
+            group_bytes=$(( group_bytes + bytes ))
+            grand=$(( grand + bytes ))
+
+            local lbl="$cat" lpad=20 spad=7
+            [[ ${#lbl} -gt $lpad ]] && lbl="${lbl:0:$((lpad-1))}…"
+            local row="  ${C_WHITE}$(printf '%-*s' "$lpad" "$lbl")${C_RESET}  ${bar}  $(printf '%*s' "$spad" "$h")"
+            group_rows+="${row}"$'\n'
+        done < "$TMPF"
+
+        [[ -z "$group_rows" ]] && continue
+
+        local gh; gh=$(_ahuman "$group_bytes")
+        _aline "  ${C_BOLD}${C_BLUE}${glabel}${C_RESET}  ${C_DIM}${gh}${C_RESET}"
+        while IFS= read -r row; do
+            [[ -z "$row" ]] && continue
+            _aline "$row"
+        done <<< "$group_rows"
+        _aline ""
+    done
+
+    _asep
+    local grand_h; grand_h=$(_ahuman "$grand")
+    _aline "  ${C_BOLD}${C_WHITE}Total identificado: ${C_YELLOW}${grand_h}${C_RESET}"
+    _aline ""
+    _abot
+}
+
 # ============ Main ============
 main() {
     parse_arguments "$@"
@@ -406,6 +550,17 @@ main() {
     if ! validate_os; then exit 1; fi
 
     trap 'echo ""; echo "Interrompido."; exit 0' INT TERM
+
+    _show_category_analysis
+
+    echo ""
+    local start_resp
+    read -r -p "$(echo -e "${C_YELLOW}  Iniciar wizard de limpeza? [s/N]: ${C_RESET}")" start_resp </dev/tty
+    if ! [[ "$start_resp" =~ ^[SsYy]$ ]]; then
+        echo -e "${C_DIM}  Saindo sem limpar.${C_RESET}"
+        echo ""
+        exit 0
+    fi
 
     run_wizard
 
