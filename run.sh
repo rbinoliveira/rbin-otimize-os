@@ -269,15 +269,16 @@ _run_script() {
         }
     fi
 
-    local dry_args=()
-    [[ "$DRY_RUN" == "true" ]] && dry_args=(--dry-run)
-
     echo ""
     printf "${C_DIM}%.0s─${C_RESET}" $(seq 1 "${BOX_WIDTH}")
     echo ""
 
     set +e
-    bash "$script_path" "${dry_args[@]}" "${extra_args[@]}"
+    if [[ "$DRY_RUN" == "true" ]]; then
+        bash "$script_path" --dry-run "${extra_args[@]+"${extra_args[@]}"}"
+    else
+        bash "$script_path" "${extra_args[@]+"${extra_args[@]}"}"
+    fi
     local exit_code=$?
     set -e
 
