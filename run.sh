@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # OS Optimization Scripts - Main Entry Point
-# Version: 2.0.0
+# Version: 2.0.2
 # Description: Visual interactive menu for system optimization
 
 set -euo pipefail
 
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.0.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ============ Terminal & Colors ============
@@ -309,11 +309,29 @@ run_cleanup() {
     _run_script "${SCRIPT_DIR}/${OS_DIR}/cleanup-disk.sh"
 }
 
+# ============ Init command ============
+
+run_init() {
+    local install_script="${SCRIPT_DIR}/scripts/install.sh"
+    if [[ ! -f "$install_script" ]]; then
+        echo -e "${C_RED}Script de instalacao nao encontrado: $install_script${C_RESET}" >&2
+        exit 2
+    fi
+    if [[ ! -x "$install_script" ]]; then
+        chmod +x "$install_script" 2>/dev/null || true
+    fi
+    exec bash "$install_script" "$@"
+}
+
 # ============ Argument Parsing ============
 
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            init)
+                shift
+                run_init "$@"
+                ;;
             -n|--dry-run)  DRY_RUN=true; shift ;;
             -h|--help)     _show_help; exit 0 ;;
             --version)     echo "rbin-otimize-os v${SCRIPT_VERSION}"; exit 0 ;;
@@ -330,7 +348,11 @@ _show_help() {
     cat <<EOF
 rbin-otimize-os v${SCRIPT_VERSION}
 
-Uso: $0 [OPCOES]
+Uso: $0 [COMANDO] [OPCOES]
+
+Comandos:
+  init             Configura o projeto (pastas, permissoes). Rode apos npm install.
+  (nenhum)         Abre o menu interativo
 
 Opcoes:
   -n, --dry-run    Simula operacoes sem executar

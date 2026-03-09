@@ -1,11 +1,12 @@
 {
   "name": "rbin-otimize-os",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Otimizacao de sistema operacional — memoria, CPU e disco (macOS e Linux)",
   "bin": {
     "rbin-otimize-os": "bin/cli.sh"
   },
   "scripts": {
+    "postinstall": "bash run.sh init",
     "prepublishOnly": "chmod +x bin/cli.sh run.sh mac/*.sh linux/*.sh scripts/*.sh lib/*.sh 2>/dev/null || true"
   },
   "files": [

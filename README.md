@@ -20,10 +20,16 @@ Kit de otimização de sistema para macOS e Linux — memória, CPU e disco — 
 npm install -g rbin-otimize-os
 ```
 
-Depois é só rodar:
+A instalação roda automaticamente `rbin-otimize-os init` (configura pastas e permissões). Depois é só rodar:
 
 ```bash
 rbin-otimize-os
+```
+
+Se precisar rodar o setup de novo manualmente:
+
+```bash
+rbin-otimize-os init
 ```
 
 ### Instalação via git
@@ -89,10 +95,11 @@ Os passos A, B e C têm aviso destacado em vermelho e exigem digitar `yes` expli
 
 **Ambientes Android e iOS não são tocados** nos passos normais (1–10). DerivedData, Gradle cache, AVDs, SDK e simuladores só são removidos se você pedir explicitamente nos passos de alto risco.
 
-### Flags disponíveis
+### Comandos e flags
 
 ```bash
 rbin-otimize-os              # menu interativo
+rbin-otimize-os init         # configura o projeto (roda automaticamente apos npm install)
 rbin-otimize-os --dry-run    # simula sem apagar nada
 rbin-otimize-os --help       # ajuda
 ```
@@ -133,10 +140,16 @@ System optimization toolkit for macOS and Linux — memory, CPU and disk — wit
 npm install -g rbin-otimize-os
 ```
 
-Then just run:
+Installation automatically runs `rbin-otimize-os init` (sets up directories and permissions). Then just run:
 
 ```bash
 rbin-otimize-os
+```
+
+To run setup again manually:
+
+```bash
+rbin-otimize-os init
 ```
 
 ### Install via git
@@ -202,10 +215,11 @@ Steps A, B and C show a red highlighted warning and require explicitly typing `y
 
 **Android and iOS dev environments are never touched** in normal steps (1–10). DerivedData, Gradle cache, AVDs, SDK and simulators are only removed if you explicitly request it in the high-risk steps.
 
-### Available flags
+### Commands and flags
 
 ```bash
 rbin-otimize-os              # interactive menu
+rbin-otimize-os init         # set up project (runs automatically after npm install)
 rbin-otimize-os --dry-run    # simulate without deleting anything
 rbin-otimize-os --help       # help
 ```
