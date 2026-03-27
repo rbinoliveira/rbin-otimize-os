@@ -145,12 +145,13 @@ _ask() {
     if [[ "$FORCE" == "true" ]] && [[ "$default" != "force_no" ]]; then
         return 0
     fi
-    local hint="s/N"
-    [[ "$default" == "s" ]] && hint="S/n"
+    local hint="y/N"
+    [[ "$default" == "y" ]] && hint="Y/n"
     local resp
-    read -r -p "$(echo -e "${C_YELLOW}  ${prompt} [${hint}]: ${C_RESET}")" resp </dev/tty
+    read -r -n 1 -p "$(echo -e "${C_YELLOW}  ${prompt} [${hint}]: ${C_RESET}")" resp </dev/tty
+    echo ""
     [[ -z "$resp" ]] && resp="$default"
-    [[ "$resp" =~ ^[SsYy]$ ]]
+    [[ "$resp" =~ ^[YySs]$ ]]
 }
 
 # Executa limpeza de uma lista de categorias
@@ -375,7 +376,8 @@ run_wizard() {
     fi
 
     local confirm_resp
-    read -r -p "$(echo -e "${C_YELLOW}  Confirma a limpeza? [s/N]: ${C_RESET}")" confirm_resp </dev/tty
+    read -r -n 1 -p "$(echo -e "${C_YELLOW}  Confirma a limpeza? [y/N]: ${C_RESET}")" confirm_resp </dev/tty
+    echo ""
     if ! [[ "$confirm_resp" =~ ^[SsYy]$ ]]; then
         echo -e "${C_YELLOW}Cancelado.${C_RESET}"
         return 0
@@ -555,7 +557,8 @@ main() {
 
     echo ""
     local start_resp
-    read -r -p "$(echo -e "${C_YELLOW}  Iniciar wizard de limpeza? [s/N]: ${C_RESET}")" start_resp </dev/tty
+    read -r -n 1 -p "$(echo -e "${C_YELLOW}  Iniciar wizard de limpeza? [y/N]: ${C_RESET}")" start_resp </dev/tty
+    echo ""
     if ! [[ "$start_resp" =~ ^[SsYy]$ ]]; then
         echo -e "${C_DIM}  Saindo sem limpar.${C_RESET}"
         echo ""
