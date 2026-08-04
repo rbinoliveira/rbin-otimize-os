@@ -56,15 +56,273 @@ get_user_home() {
     echo "${HOME_OVERRIDE:-$HOME}"
 }
 
+# ============ Preservacao de simuladores/emuladores ============
+# Mesmo quando o usuario pede para "apagar tudo", sempre mantemos 1 emulador
+# Android e 1 simulador iOS. Recriar um device do zero (download de system
+# image / runtime) custa tempo e banda, entao deixamos o ambiente utilizavel.
+
+# Quantas versoes de iOS DeviceSupport preservar (as mais recentes).
+XCODE_DEVICE_SUPPORT_KEEP="${XCODE_DEVICE_SUPPORT_KEEP:-2}"
+
+# Diretorios de iOS DeviceSupport, da versao mais nova para a mais antiga.
+# Nomes tem a forma "18.1.1 (22B91)" ou "16.4 (20E247) arm64e".
+list_xcode_device_support() {
+    local base="$(get_user_home)/Library/Developer/Xcode/iOS DeviceSupport"
+    [[ -d "$base" ]] || return 1
+    local d name ver rest major minor patch score
+    for d in "$base"/*; do
+        [[ -d "$d" ]] || continue
+        name=$(basename "$d")
+        ver="${name%% *}"
+        major="${ver%%.*}"
+        rest="${ver#*.}"
+        [[ "$rest" == "$ver" ]] && rest="0.0"
+        minor="${rest%%.*}"
+        patch="${rest#*.}"
+        [[ "$patch" == "$rest" ]] && patch=0
+        patch="${patch%%.*}"
+        [[ "$major" =~ ^[0-9]+$ ]] || major=0
+        [[ "$minor" =~ ^[0-9]+$ ]] || minor=0
+        [[ "$patch" =~ ^[0-9]+$ ]] || patch=0
+        score=$(( major * 1000000 + minor * 1000 + patch ))
+        printf '%012d|%s\n' "$score" "$d"
+    done | sort -r
+}
+
+# Raiz do SDK Android. Respeita ANDROID_SDK_ROOT/ANDROID_HOME e cai nos
+# caminhos padrao de cada plataforma (macOS e Linux usam pastas diferentes).
+get_android_sdk_root() {
+    local candidates=()
+    [[ -n "$ANDROID_SDK_ROOT" ]] && candidates+=("$ANDROID_SDK_ROOT")
+    [[ -n "$ANDROID_HOME" ]] && candidates+=("$ANDROID_HOME")
+    candidates+=(
+        "$(get_user_home)/Library/Android/sdk"
+        "$(get_user_home)/Android/Sdk"
+        "$(get_user_home)/android-sdk"
+    )
+    local c
+    for c in "${candidates[@]}"; do
+        [[ -d "$c" ]] && { echo "$c"; return 0; }
+    done
+    return 1
+}
+
+# Escolhe a plataforma do SDK a preservar: o maior API level instalado.
+# Plataformas de preview (android-UpsideDownCake) so vencem se nao houver numerica.
+pick_android_platform_to_keep() {
+    local base="$1"
+    [[ -d "$base" ]] || return 1
+    local best="" best_api=-1 p name api
+    for p in "$base"/android-*; do
+        [[ -d "$p" ]] || continue
+        name=$(basename "$p")
+        api="${name#android-}"
+        if [[ "$api" =~ ^[0-9]+$ ]]; then
+            if [[ $api -gt $best_api ]]; then
+                best_api=$api
+                best="$p"
+            fi
+        elif [[ -z "$best" ]]; then
+            best="$p"
+        fi
+    done
+    [[ -n "$best" ]] || return 1
+    echo "$best"
+}
+
+# Lista os diretorios *.avd do usuario, do mais recente para o mais antigo.
+list_android_avds() {
+    local avd_dir="$(get_user_home)/.android/avd"
+    [[ -d "$avd_dir" ]] || return 1
+    ls -1dt "$avd_dir"/*.avd 2>/dev/null
+}
+
+# Escolhe o AVD Android a preservar: o usado/modificado mais recentemente.
+pick_android_avd_to_keep() {
+    local d
+    while IFS= read -r d; do
+        [[ -d "$d" ]] || continue
+        echo "$d"
+        return 0
+    done < <(list_android_avds)
+    return 1
+}
+
+# Lista os UDIDs de todos os simuladores registrados no simctl.
+list_ios_simulator_udids() {
+    command -v xcrun >/dev/null 2>&1 || return 1
+    xcrun simctl list devices 2>/dev/null \
+        | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'
+}
+
+# Escolhe o simulador iOS a preservar: iPhone do runtime iOS mais recente.
+# Imprime "UDID|Nome" ou retorna 1 se nao houver nenhum simulador.
+pick_ios_simulator_to_keep() {
+    command -v xcrun >/dev/null 2>&1 || return 1
+    local listing
+    listing=$(xcrun simctl list devices available 2>/dev/null)
+    [[ -z "$listing" ]] && listing=$(xcrun simctl list devices 2>/dev/null)
+    [[ -z "$listing" ]] && return 1
+
+    local runtime="" best_udid="" best_name="" best_score=-1
+    local line name udid ver major minor score
+    while IFS= read -r line; do
+        # Cabecalho de runtime: "-- iOS 18.2 --"
+        if [[ "$line" =~ ^--[[:space:]]*(.*[^[:space:]])[[:space:]]*--$ ]]; then
+            runtime="${BASH_REMATCH[1]}"
+            continue
+        fi
+        [[ "$runtime" == iOS* ]] || continue
+        [[ "$line" =~ \(([0-9A-Fa-f-]{36})\) ]] || continue
+        udid="${BASH_REMATCH[1]}"
+
+        name="${line%% (*}"
+        name="${name#"${name%%[![:space:]]*}"}"
+
+        ver="${runtime#iOS }"
+        major="${ver%%.*}"
+        minor="${ver#*.}"
+        [[ "$minor" == "$ver" ]] && minor=0
+        minor="${minor%%.*}"
+        [[ "$major" =~ ^[0-9]+$ ]] || major=0
+        [[ "$minor" =~ ^[0-9]+$ ]] || minor=0
+
+        # Runtime mais novo vence; em empate, iPhone tem preferencia sobre iPad.
+        score=$(( major * 1000 + minor * 10 ))
+        [[ "$name" == iPhone* ]] && score=$(( score + 5 ))
+
+        if [[ $score -gt $best_score ]]; then
+            best_score=$score
+            best_udid="$udid"
+            best_name="$name"
+        fi
+    done <<< "$listing"
+
+    [[ -n "$best_udid" ]] || return 1
+    echo "${best_udid}|${best_name}"
+}
+
+# Bytes que o Docker considera recuperaveis, sem contar volumes (que tem
+# categoria propria). Retorna 0 se o Docker nao responder.
+docker_reclaimable_bytes() {
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        echo 0
+        return 0
+    fi
+    # LC_ALL=C: em locales com virgula decimal (pt_BR), o awk leria "3.1GB" como 3.
+    docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null | LC_ALL=C awk -F'|' '
+        $1 == "Local Volumes" { next }
+        {
+            r = $2
+            sub(/ .*/, "", r)                 # "3.1GB (59%)" -> "3.1GB"
+            unit = r; sub(/^[0-9.]+/, "", unit)
+            num  = r; sub(/[A-Za-z]+$/, "", num)
+            if (num == "") next
+            m = 1
+            if (unit == "kB" || unit == "KB") m = 1000
+            else if (unit == "MB") m = 1000000
+            else if (unit == "GB") m = 1000000000
+            else if (unit == "TB") m = 1000000000000
+            total += num * m
+        }
+        END { printf "%.0f", total }
+    '
+}
+
+# Lista as runtimes de simulador instaladas (Xcode 14+), uma por linha:
+#   identifier|plataforma|versao|build|sizeBytes|deletable
+list_ios_simulator_runtimes() {
+    command -v xcrun >/dev/null 2>&1 || return 1
+    xcrun simctl runtime list -j 2>/dev/null | awk '
+        /^  "/ { id=$1; gsub(/"/, "", id); next }
+        /"version" :/           { v=$3;  gsub(/[",]/, "", v)  }
+        /"build" :/             { b=$3;  gsub(/[",]/, "", b)  }
+        /"sizeBytes" :/         { s=$3;  gsub(/[",]/, "", s)  }
+        /"deletable" :/         { d=$3;  gsub(/[",]/, "", d)  }
+        /"runtimeIdentifier" :/ { ri=$3; gsub(/[",]/, "", ri) }
+        /^  }/ {
+            if (id != "") {
+                p = ri
+                sub(/.*SimRuntime\./, "", p)
+                sub(/-.*/, "", p)
+                if (s == "") s = 0
+                print id "|" p "|" v "|" b "|" s "|" d
+            }
+            id=""; v=""; b=""; s=""; d=""; ri=""
+        }
+    '
+}
+
+# Rotulos de runtime que ja tem pelo menos 1 simulador criado (ex.: "iOS 26.5").
+list_runtimes_in_use() {
+    command -v xcrun >/dev/null 2>&1 || return 1
+    local line runtime=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^--[[:space:]]*(.*[^[:space:]])[[:space:]]*--$ ]]; then
+            runtime="${BASH_REMATCH[1]}"
+            continue
+        fi
+        [[ -n "$runtime" ]] || continue
+        [[ "$line" =~ \([0-9A-Fa-f-]{36}\) ]] || continue
+        echo "$runtime"
+        runtime=""   # basta 1 device para marcar a runtime como em uso
+    done < <(xcrun simctl list devices 2>/dev/null)
+}
+
+# Runtimes que podem ser apagadas: nem a mais recente da plataforma, nem uma
+# com simulador criado em cima. Imprime "identifier|rotulo|sizeBytes".
+list_removable_ios_runtimes() {
+    local in_use
+    in_use=$(list_runtimes_in_use 2>/dev/null)
+
+    list_ios_simulator_runtimes 2>/dev/null | awk -v inuse="$in_use" '
+        BEGIN {
+            n = split(inuse, arr, "\n")
+            for (i = 1; i <= n; i++) if (arr[i] != "") used[arr[i]] = 1
+        }
+        {
+            split($0, f, "|")
+            id[NR]=f[1]; plat[NR]=f[2]; ver[NR]=f[3]; build[NR]=f[4]
+            size[NR]=f[5]; del[NR]=f[6]
+            split(f[3], vp, ".")
+            sc[NR] = vp[1] * 1000 + (vp[2] + 0)
+            if (sc[NR] > best[f[2]]) best[f[2]] = sc[NR]
+            total = NR
+        }
+        END {
+            for (i = 1; i <= total; i++) {
+                if (del[i] != "true") continue           # Apple marcou como nao removivel
+                if (sc[i] == best[plat[i]]) continue     # mais recente da plataforma
+                if ((plat[i] " " ver[i]) in used) continue  # tem simulador usando
+                print id[i] "|" plat[i] " " ver[i] " (" build[i] ")|" size[i]
+            }
+        }
+    '
+}
+
+# Fallback sem xcrun: diretorio de device mais recente em CoreSimulator/Devices.
+pick_ios_simulator_dir_to_keep() {
+    local devices_dir="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
+    [[ -d "$devices_dir" ]] || return 1
+    local d
+    while IFS= read -r d; do
+        [[ -d "$d" ]] || continue
+        echo "${d%/}"
+        return 0
+    done < <(ls -1dt "$devices_dir"/*/ 2>/dev/null)
+    return 1
+}
+
 # ============ Cleanup Category Functions ============
 
 get_cleanup_categories() {
     # Android/iOS categories are intentionally excluded to preserve dev environments:
-    #   xcode, xcode_archives, xcode_device_support, ios_simulators,
-    #   cocoapods_cache, android_studio, gradle,
+    #   xcode_archives, ios_simulators, cocoapods_cache, android_studio, gradle,
     #   xcode_app, xcode_developer_full, xcode_simulator_full, xcode_command_line_tools,
     #   android_studio_app, android_library, android_application_support, gradle_full
-    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices"
+    # xcode (DerivedData) e xcode_device_support entram porque sao regenerados
+    # sozinhos; ios_simulator_runtimes preserva a runtime mais nova e as em uso.
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support"
 
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
@@ -566,7 +824,7 @@ scan_cleanup_category() {
             return 0
             ;;
         xcode_device_support)
-            # Xcode Device Support (macOS only)
+            # Xcode Device Support (macOS only) — as N versoes mais recentes ficam
             if ! is_macos; then
                 return 0
             fi
@@ -574,12 +832,42 @@ scan_cleanup_category() {
             local path="$(get_user_home)/Library/Developer/Xcode/iOS DeviceSupport"
             local total_size=0
             local file_count=0
+            local ds_keep="${XCODE_DEVICE_SUPPORT_KEEP:-2}"
+            local ds_index=0 ds_line ds_dir
+
+            while IFS= read -r ds_line; do
+                [[ -z "$ds_line" ]] && continue
+                ds_index=$((ds_index + 1))
+                [[ $ds_index -le $ds_keep ]] && continue
+                ds_dir="${ds_line#*|}"
+                if command -v du >/dev/null 2>&1; then
+                    local dir_size=$(du -sk "$ds_dir" 2>/dev/null | awk '{print $1}')
+                    if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                        total_size=$((total_size + dir_size * 1024))
+                        file_count=$((file_count + dir_size * 5))
+                    fi
+                fi
+            done < <(list_xcode_device_support 2>/dev/null)
+
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|${path} (mantem as ${ds_keep} mais recentes)|${file_count}|${total_size}"
+            return 0
+            ;;
+        xcode)
+            # Xcode DerivedData (macOS only) — 100% regenerado no proximo build
+            if ! is_macos; then
+                return 0
+            fi
+
+            local path="$(get_user_home)/Library/Developer/Xcode/DerivedData"
+            local total_size=0
+            local file_count=0
 
             if [[ -e "$path" ]] && command -v du >/dev/null 2>&1; then
                 local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
                 if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
                     total_size=$((total_size + dir_size * 1024))
-                    file_count=$((dir_size * 5))
+                    file_count=$((dir_size * 10))
                 fi
             fi
 
@@ -652,6 +940,14 @@ scan_cleanup_category() {
             [[ $file_count -eq 0 ]] && file_count=1
 
             echo "${category}|Multiple project directories|${file_count}|${total_size}"
+            return 0
+            ;;
+        docker)
+            # So conta o que o prune realmente remove (nao o disco da VM inteiro)
+            local reclaimable
+            reclaimable=$(docker_reclaimable_bytes)
+            [[ "$reclaimable" =~ ^[0-9]+$ ]] || reclaimable=0
+            echo "${category}|Docker: imagens/cache sem uso|1|${reclaimable}"
             return 0
             ;;
         volumes)
@@ -1395,35 +1691,74 @@ scan_cleanup_category() {
         android_avd)
             local path="$(get_user_home)/.android/avd"
             local total_size=0 file_count=0
-            if [[ -e "$path" ]]; then
-                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
-                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz))
-            fi
+            # 1 emulador e sempre preservado — nao entra na estimativa.
+            local keep_dir=""; keep_dir=$(pick_android_avd_to_keep 2>/dev/null) || keep_dir=""
+            local avd
+            for avd in "$path"/*.avd; do
+                [[ -d "$avd" ]] || continue
+                [[ "$avd" == "$keep_dir" ]] && continue
+                local sz=$(du -sk "$avd" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz))
+            done
             [[ $file_count -eq 0 ]] && file_count=1
-            echo "${category}|${path}|${file_count}|${total_size}"
+            echo "${category}|${path} (mantem 1 emulador)|${file_count}|${total_size}"
+            return 0
             ;;
 
         android_sdk_old)
-            local base="$(get_user_home)/Library/Android/sdk/platforms"
+            local sdk_root base=""
+            sdk_root=$(get_android_sdk_root 2>/dev/null) && base="$sdk_root/platforms"
             local total_size=0 file_count=0
-            if [[ -d "$base" ]]; then
-                local sz=$(du -sk "$base" 2>/dev/null | awk '{print $1}')
-                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz))
+            if [[ -n "$base" ]] && [[ -d "$base" ]]; then
+                # A plataforma mais recente e sempre preservada.
+                local keep_dir=""; keep_dir=$(pick_android_platform_to_keep "$base" 2>/dev/null) || keep_dir=""
+                local p
+                for p in "$base"/android-*; do
+                    [[ -d "$p" ]] || continue
+                    [[ "$p" == "$keep_dir" ]] && continue
+                    local sz=$(du -sk "$p" 2>/dev/null | awk '{print $1}')
+                    [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz))
+                done
             fi
             [[ $file_count -eq 0 ]] && file_count=1
-            echo "${category}|${base}|${file_count}|${total_size}"
+            echo "${category}|${base:-Android SDK nao encontrado} (mantem a mais recente)|${file_count}|${total_size}"
+            return 0
             ;;
 
         ios_simulator_devices)
             if ! is_macos; then echo "${category}||0|0"; return 0; fi
             local path="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
             local total_size=0 file_count=0
-            if [[ -e "$path" ]]; then
-                local sz=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
-                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((sz * 1024)) && file_count=$((sz))
+            # 1 simulador e sempre preservado — nao entra na estimativa.
+            local keep_udid=""; local keep_info
+            if keep_info=$(pick_ios_simulator_to_keep 2>/dev/null); then
+                keep_udid="${keep_info%%|*}"
             fi
+            local dev
+            for dev in "$path"/*/; do
+                dev="${dev%/}"
+                [[ -d "$dev" ]] || continue
+                [[ -n "$keep_udid" ]] && [[ "$(basename "$dev")" == "$keep_udid" ]] && continue
+                local sz=$(du -sk "$dev" 2>/dev/null | awk '{print $1}')
+                [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz))
+            done
             [[ $file_count -eq 0 ]] && file_count=1
-            echo "${category}|${path}|${file_count}|${total_size}"
+            echo "${category}|${path} (mantem 1 simulador)|${file_count}|${total_size}"
+            return 0
+            ;;
+
+        ios_simulator_runtimes)
+            if ! is_macos; then echo "${category}||0|0"; return 0; fi
+            local total_size=0 file_count=0
+            local rt_id rt_label rt_size
+            while IFS='|' read -r rt_id rt_label rt_size; do
+                [[ -z "$rt_id" ]] && continue
+                [[ "$rt_size" =~ ^[0-9]+$ ]] && total_size=$((total_size + rt_size))
+                file_count=$((file_count + 1))
+            done < <(list_removable_ios_runtimes 2>/dev/null)
+            [[ $file_count -eq 0 ]] && file_count=1
+            echo "${category}|Runtimes de simulador sem uso|${file_count}|${total_size}"
+            return 0
             ;;
     esac
 
@@ -2192,6 +2527,58 @@ delete_category_files() {
 
             return 0
             ;;
+        xcode)
+            # DerivedData: indices, modulos e produtos de build. Tudo e recriado
+            # no proximo build, entao apaga-se o conteudo sem preservar nada.
+            if ! is_macos; then
+                log_warn "Xcode DerivedData cleanup is only available on macOS"
+                return 1
+            fi
+
+            log_info "Cleaning Xcode DerivedData..."
+            local path="$(get_user_home)/Library/Developer/Xcode/DerivedData"
+            if [[ ! -d "$path" ]]; then
+                log_info "No Xcode DerivedData found"
+                return 0
+            fi
+
+            local total_size=0
+            if command -v du >/dev/null 2>&1; then
+                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+                [[ "$dir_size" =~ ^[0-9]+$ ]] && total_size=$((dir_size * 1024))
+            fi
+            local size_formatted
+            size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete Xcode DerivedData ($size_formatted)"
+                print_warning "  - Indices e produtos de build; recriados no proximo build"
+                print_warning "  - O primeiro build depois disso sera bem mais lento"
+                if ! confirm "Delete Xcode DerivedData? (y/N)" "N"; then
+                    log_info "User cancelled DerivedData deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting Xcode DerivedData ($size_formatted)"
+            fi
+
+            local deleted=0 failed=0 entry
+            while IFS= read -r entry; do
+                [[ -z "$entry" ]] && continue
+                if rm -rf "$entry" 2>/dev/null; then
+                    deleted=$((deleted + 1))
+                else
+                    failed=$((failed + 1))
+                    log_warn "Could not remove: $entry"
+                fi
+            done < <(find "$path" -mindepth 1 -maxdepth 1 2>/dev/null)
+
+            log_success "Deleted $deleted DerivedData entries ($failed failed)"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ DerivedData limpo ($size_formatted)" >&2
+            fi
+            return 0
+            ;;
         xcode_device_support)
             if ! is_macos; then
                 log_warn "Xcode Device Support cleanup is only available on macOS"
@@ -2207,13 +2594,35 @@ delete_category_files() {
                 return 0
             fi
 
-            # Calculate size
+            # As N versoes mais recentes ficam: sao as que voce provavelmente
+            # ainda vai depurar. As antigas sao rebaixadas ao reconectar o device.
+            local ds_keep="${XCODE_DEVICE_SUPPORT_KEEP:-2}"
+            local ds_entries ds_index=0
+            local ds_to_delete=()
+            ds_entries=$(list_xcode_device_support)
+            local ds_line ds_dir
+            while IFS= read -r ds_line; do
+                [[ -z "$ds_line" ]] && continue
+                ds_index=$((ds_index + 1))
+                [[ $ds_index -le $ds_keep ]] && continue
+                ds_dir="${ds_line#*|}"
+                ds_to_delete+=("$ds_dir")
+            done <<< "$ds_entries"
+
+            if [[ ${#ds_to_delete[@]} -eq 0 ]]; then
+                log_info "Nada a remover: apenas $ds_index versao(oes) de DeviceSupport (limite: $ds_keep)"
+                return 0
+            fi
+
+            # Calculate size (so do que sera removido)
             local total_size=0
             if command -v du >/dev/null 2>&1; then
-                local dir_size=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
-                if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
-                    total_size=$((total_size + dir_size * 1024))
-                fi
+                for ds_dir in "${ds_to_delete[@]}"; do
+                    local dir_size=$(du -sk "$ds_dir" 2>/dev/null | awk '{print $1}')
+                    if [[ -n "$dir_size" ]] && [[ "$dir_size" =~ ^[0-9]+$ ]]; then
+                        total_size=$((total_size + dir_size * 1024))
+                    fi
+                done
             fi
 
             # Format size
@@ -2228,35 +2637,41 @@ delete_category_files() {
             fi
 
             if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
-            print_warning "About to delete Xcode Device Support"
+            print_warning "About to delete ${#ds_to_delete[@]} old iOS Device Support version(s)"
             print_info "Location: $path"
             print_info "Total size: $size_formatted"
             print_warning ""
             print_warning "⚠ WARNING: This will delete iOS Device Support files:"
             print_warning "  - Debug symbols for physical iOS devices"
+            print_warning "  - As $ds_keep versoes mais recentes sao preservadas"
             print_warning "  - These will be re-downloaded when connecting devices again"
             print_warning ""
 
-            if ! confirm "Delete Xcode Device Support? (y/N)" "N"; then
+            if ! confirm "Delete old Xcode Device Support versions? (y/N)" "N"; then
                 log_info "User cancelled Xcode Device Support deletion"
                 return 1
             fi
             else
-                log_info "Deleting Xcode Device Support ($size_formatted)"
+                log_info "Deleting ${#ds_to_delete[@]} old Device Support version(s) ($size_formatted)"
             fi
 
             if [[ "$QUIET" != "true" ]]; then
                 echo "  → Deleting Xcode Device Support..." >&2
             fi
 
-            if rm -rf "$path" 2>/dev/null; then
-                log_success "Deleted Xcode Device Support"
-                if [[ "$QUIET" != "true" ]]; then
-                    echo "  ✓ Xcode Device Support cleaned ($size_formatted)" >&2
+            local ds_deleted=0
+            for ds_dir in "${ds_to_delete[@]}"; do
+                if rm -rf "$ds_dir" 2>/dev/null; then
+                    ds_deleted=$((ds_deleted + 1))
+                    log_debug "Deleted DeviceSupport: $(basename "$ds_dir")"
+                else
+                    log_warn "Failed to delete DeviceSupport: $(basename "$ds_dir")"
                 fi
-            else
-                log_warn "Failed to delete Xcode Device Support"
-                return 1
+            done
+
+            log_success "Deleted $ds_deleted old Device Support version(s)"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ $ds_deleted versao(oes) antiga(s) de DeviceSupport removida(s) ($size_formatted)" >&2
             fi
 
             return 0
@@ -2377,6 +2792,52 @@ delete_category_files() {
 
             log_success "Deleted $deleted build artifact files"
             [[ $failed -gt 0 ]] && log_warn "$failed files could not be deleted"
+            return 0
+            ;;
+        docker)
+            # NAO apagar o disco da VM (Docker.raw): isso destruiria imagens,
+            # containers e volumes em uso. O prune libera quase o mesmo espaco
+            # mexendo so no que esta sem uso.
+            if ! command -v docker >/dev/null 2>&1; then
+                log_info "Docker CLI nao encontrado — nada a limpar"
+                return 0
+            fi
+            if ! docker info >/dev/null 2>&1; then
+                log_warn "Docker daemon nao esta rodando — inicie o Docker para limpar"
+                return 0
+            fi
+
+            log_info "Cleaning unused Docker data (prune)..."
+
+            # Espaco recuperavel segundo o proprio Docker
+            local reclaimable
+            reclaimable=$(docker_reclaimable_bytes)
+            [[ "$reclaimable" =~ ^[0-9]+$ ]] || reclaimable=0
+            local size_formatted
+            size_formatted=$(awk -v b="$reclaimable" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to prune unused Docker data (~$size_formatted)"
+                print_warning "  - Containers parados, redes orfas e cache de build"
+                print_warning "  - Imagens sem container e sem uso ha mais de 30 dias"
+                print_warning "  - Imagens em uso e volumes NAO sao tocados"
+                if ! confirm "Prune unused Docker data? (y/N)" "N"; then
+                    log_info "User cancelled Docker prune"
+                    return 1
+                fi
+            else
+                log_info "Pruning unused Docker data (~$size_formatted)"
+            fi
+
+            docker container prune -f >/dev/null 2>&1 || log_warn "docker container prune falhou"
+            docker network prune -f >/dev/null 2>&1 || log_warn "docker network prune falhou"
+            docker image prune -a -f --filter "until=720h" >/dev/null 2>&1 || log_warn "docker image prune falhou"
+            docker builder prune -a -f >/dev/null 2>&1 || log_warn "docker builder prune falhou"
+
+            log_success "Docker prune concluido (~$size_formatted recuperados)"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ Docker: dados sem uso removidos (~$size_formatted)" >&2
+            fi
             return 0
             ;;
         volumes)
@@ -4537,9 +4998,9 @@ delete_category_files() {
                 print_info "Location: $path"
                 print_info "Size: $size_formatted"
                 print_warning ""
-                print_warning "⚠ WARNING: This will delete ALL iOS Simulator data"
+                print_warning "⚠ WARNING: This will delete iOS Simulator data (1 simulator is kept)"
                 print_warning ""
-                
+
                 if ! confirm "Delete CoreSimulator directory? (y/N)" "N"; then
                     log_info "User cancelled CoreSimulator directory deletion"
                     return 1
@@ -4547,21 +5008,52 @@ delete_category_files() {
             else
                 log_info "Deleting CoreSimulator directory ($size_formatted)"
             fi
-            
+
             if [[ "$QUIET" != "true" ]]; then
                 echo "  → Deleting CoreSimulator directory..." >&2
             fi
-            
-            if rm -rf "$path" 2>/dev/null; then
-                log_success "Deleted CoreSimulator directory"
+
+            # Preserva 1 simulador: apaga tudo dentro de CoreSimulator, menos o
+            # device escolhido e o device_set.plist que o simctl usa de indice.
+            local keep_udid="" keep_label="" keep_info
+            if keep_info=$(pick_ios_simulator_to_keep); then
+                keep_udid="${keep_info%%|*}"
+                keep_label="${keep_info#*|}"
+            elif keep_info=$(pick_ios_simulator_dir_to_keep); then
+                keep_udid=$(basename "$keep_info")
+                keep_label="$keep_udid"
+            fi
+
+            command -v xcrun >/dev/null 2>&1 && xcrun simctl shutdown all 2>/dev/null || true
+
+            local entry failed=0
+            for entry in "$path"/*; do
+                [[ -e "$entry" ]] || continue
+                [[ "$(basename "$entry")" == "Devices" ]] && [[ -n "$keep_udid" ]] && continue
+                rm -rf "$entry" 2>/dev/null || failed=1
+            done
+
+            if [[ -n "$keep_udid" ]] && [[ -d "$path/Devices" ]]; then
+                for entry in "$path"/Devices/*; do
+                    [[ -e "$entry" ]] || continue
+                    local base_name; base_name=$(basename "$entry")
+                    [[ "$base_name" == "$keep_udid" ]] && continue
+                    [[ "$base_name" == "device_set.plist" ]] && continue
+                    rm -rf "$entry" 2>/dev/null || failed=1
+                done
+                command -v xcrun >/dev/null 2>&1 && xcrun simctl erase "$keep_udid" >/dev/null 2>&1 || true
+            fi
+
+            if [[ $failed -eq 0 ]]; then
+                log_success "Cleaned CoreSimulator directory — preservado: ${keep_label:-nenhum simulador encontrado}"
                 if [[ "$QUIET" != "true" ]]; then
-                    echo "  ✓ CoreSimulator directory removed ($size_formatted)" >&2
+                    echo "  ✓ CoreSimulator limpo ($size_formatted) — mantido: ${keep_label:-nenhum}" >&2
                 fi
             else
-                log_warn "Failed to delete CoreSimulator directory"
+                log_warn "Failed to delete parts of CoreSimulator directory"
                 return 1
             fi
-            
+
             return 0
             ;;
         xcode_command_line_tools)
@@ -4922,32 +5414,192 @@ delete_category_files() {
 
         android_avd)
             log_info "Android AVD deletion requested..."
-            local path="$(get_user_home)/.android/avd"
-            if [[ ! -e "$path" ]]; then log_info "No Android AVDs found"; return 0; fi
-            rm -rf "$path" 2>/dev/null && log_success "Deleted Android AVDs" || { log_warn "Failed to delete AVDs"; return 1; }
+            local avd_dir="$(get_user_home)/.android/avd"
+            if [[ ! -d "$avd_dir" ]]; then log_info "No Android AVDs found"; return 0; fi
+
+            # Sempre preserva 1 emulador para o ambiente continuar utilizavel.
+            local keep_dir keep_name=""
+            if keep_dir=$(pick_android_avd_to_keep); then
+                keep_name=$(basename "$keep_dir")
+                keep_name="${keep_name%.avd}"
+            else
+                log_info "No Android AVDs found"
+                return 0
+            fi
+
+            local deleted=0 avd name
+            for avd in "$avd_dir"/*.avd; do
+                [[ -d "$avd" ]] || continue
+                name=$(basename "$avd")
+                name="${name%.avd}"
+                [[ "$name" == "$keep_name" ]] && continue
+                if rm -rf "$avd" "$avd_dir/${name}.ini" 2>/dev/null; then
+                    deleted=$((deleted+1))
+                    log_debug "Deleted AVD: $name"
+                else
+                    log_warn "Failed to delete AVD: $name"
+                fi
+            done
+
+            log_success "Deleted $deleted Android AVD(s) — preservado: $keep_name"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ $deleted emulador(es) Android removido(s) — mantido: $keep_name" >&2
+            fi
             return 0
             ;;
 
         android_sdk_old)
             log_info "Android SDK platforms deletion requested..."
-            local base="$(get_user_home)/Library/Android/sdk/platforms"
+            local sdk_root
+            if ! sdk_root=$(get_android_sdk_root); then
+                log_info "Android SDK nao encontrado"
+                return 0
+            fi
+            local base="$sdk_root/platforms"
             if [[ ! -d "$base" ]]; then log_info "No Android SDK platforms found"; return 0; fi
-            rm -rf "$base" 2>/dev/null && log_success "Deleted Android SDK platforms" || { log_warn "Failed"; return 1; }
+
+            # Sempre preserva a plataforma mais recente para os projetos compilarem.
+            local keep_dir keep_name=""
+            if keep_dir=$(pick_android_platform_to_keep "$base"); then
+                keep_name=$(basename "$keep_dir")
+            else
+                log_info "No Android SDK platforms found"
+                return 0
+            fi
+
+            local deleted=0 p name
+            for p in "$base"/android-*; do
+                [[ -d "$p" ]] || continue
+                name=$(basename "$p")
+                [[ "$name" == "$keep_name" ]] && continue
+                if rm -rf "$p" 2>/dev/null; then
+                    deleted=$((deleted+1))
+                    log_debug "Deleted SDK platform: $name"
+                else
+                    log_warn "Failed to delete SDK platform: $name"
+                fi
+            done
+
+            log_success "Deleted $deleted Android SDK platform(s) — preservado: $keep_name"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ $deleted plataforma(s) do SDK removida(s) — mantida: $keep_name" >&2
+            fi
             return 0
             ;;
 
         ios_simulator_devices)
             if ! is_macos; then return 0; fi
             log_info "iOS Simulator Devices deletion requested..."
-            local path="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
-            if [[ ! -e "$path" ]]; then log_info "No iOS Simulator Devices found"; return 0; fi
+            local devices_dir="$(get_user_home)/Library/Developer/CoreSimulator/Devices"
+            if [[ ! -e "$devices_dir" ]]; then log_info "No iOS Simulator Devices found"; return 0; fi
+
+            local deleted=0 keep_label=""
             if command -v xcrun >/dev/null 2>&1; then
+                # Sempre preserva 1 simulador; ele e apenas apagado (erase),
+                # o que libera os dados/apps mas mantem o device utilizavel.
+                local keep keep_udid="" udid
+                if keep=$(pick_ios_simulator_to_keep); then
+                    keep_udid="${keep%%|*}"
+                    keep_label="${keep#*|}"
+                fi
+
                 xcrun simctl shutdown all 2>/dev/null || true
-                xcrun simctl delete all 2>/dev/null || true
+
+                if [[ -z "$keep_udid" ]]; then
+                    log_info "No iOS Simulator Devices found"
+                    return 0
+                fi
+
+                while IFS= read -r udid; do
+                    [[ -z "$udid" || "$udid" == "$keep_udid" ]] && continue
+                    if xcrun simctl delete "$udid" >/dev/null 2>&1; then
+                        deleted=$((deleted+1))
+                        log_debug "Deleted simulator: $udid"
+                    else
+                        log_warn "Failed to delete simulator: $udid"
+                    fi
+                done < <(list_ios_simulator_udids)
+
+                xcrun simctl erase "$keep_udid" >/dev/null 2>&1 || true
             else
-                rm -rf "$path" 2>/dev/null
+                # Sem xcrun: preserva o diretorio de device mais recente.
+                local keep_path d
+                if ! keep_path=$(pick_ios_simulator_dir_to_keep); then
+                    log_info "No iOS Simulator Devices found"
+                    return 0
+                fi
+                keep_label=$(basename "$keep_path")
+                for d in "$devices_dir"/*/; do
+                    d="${d%/}"
+                    [[ -d "$d" ]] || continue
+                    [[ "$d" == "$keep_path" ]] && continue
+                    rm -rf "$d" 2>/dev/null && deleted=$((deleted+1)) || log_warn "Failed to delete: $d"
+                done
             fi
-            log_success "Deleted iOS Simulator Devices"
+
+            log_success "Deleted $deleted iOS simulator(s) — preservado: $keep_label"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ $deleted simulador(es) iOS removido(s) — mantido: $keep_label" >&2
+            fi
+            return 0
+            ;;
+
+        ios_simulator_runtimes)
+            if ! is_macos; then return 0; fi
+            if ! command -v xcrun >/dev/null 2>&1 || ! xcrun simctl runtime list >/dev/null 2>&1; then
+                log_info "simctl runtime nao disponivel (requer Xcode 14+)"
+                return 0
+            fi
+
+            log_info "Cleaning unused iOS Simulator runtimes..."
+
+            local removable
+            removable=$(list_removable_ios_runtimes 2>/dev/null)
+            if [[ -z "$removable" ]]; then
+                log_info "Nenhuma runtime removivel (todas em uso ou mais recentes)"
+                return 0
+            fi
+
+            local rt_id rt_label rt_size total_size=0 rt_count=0
+            while IFS='|' read -r rt_id rt_label rt_size; do
+                [[ -z "$rt_id" ]] && continue
+                [[ "$rt_size" =~ ^[0-9]+$ ]] && total_size=$((total_size + rt_size))
+                rt_count=$((rt_count + 1))
+            done <<< "$removable"
+
+            local size_formatted
+            size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+
+            if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+                print_warning "About to delete $rt_count unused simulator runtime(s) ($size_formatted)"
+                while IFS='|' read -r rt_id rt_label rt_size; do
+                    [[ -n "$rt_id" ]] && print_info "  - $rt_label"
+                done <<< "$removable"
+                print_warning "  - A runtime mais recente e as com simulador criado sao preservadas"
+                print_warning "  - Reinstalacao via Xcode > Settings > Components (download grande)"
+                if ! confirm "Delete unused simulator runtimes? (y/N)" "N"; then
+                    log_info "User cancelled simulator runtime deletion"
+                    return 1
+                fi
+            else
+                log_info "Deleting $rt_count unused simulator runtime(s) ($size_formatted)"
+            fi
+
+            local deleted=0
+            while IFS='|' read -r rt_id rt_label rt_size; do
+                [[ -z "$rt_id" ]] && continue
+                if xcrun simctl runtime delete "$rt_id" >/dev/null 2>&1; then
+                    deleted=$((deleted+1))
+                    log_debug "Deleted runtime: $rt_label"
+                else
+                    log_warn "Failed to delete runtime: $rt_label"
+                fi
+            done <<< "$removable"
+
+            log_success "Deleted $deleted unused simulator runtime(s)"
+            if [[ "$QUIET" != "true" ]]; then
+                echo "  ✓ $deleted runtime(s) de simulador removida(s) ($size_formatted)" >&2
+            fi
             return 0
             ;;
     esac

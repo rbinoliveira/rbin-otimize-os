@@ -166,7 +166,7 @@ _run_categories() {
         # High-risk categories have their own interactive prompt — do NOT redirect
         # output so the user can see it. All others go to the log file.
         case "$cat" in
-            android_avd|ios_simulator_devices|android_sdk_old)
+            android_avd|ios_simulator_devices|ios_simulator_runtimes|android_sdk_old|docker)
                 delete_category_files "$cat" "$MIN_AGE_DAYS" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"
                 rc=${PIPESTATUS[0]}
                 ;;
@@ -255,16 +255,20 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
-    # PASSO 6 — Caches iOS/Swift (nao quebra desenvolvimento)
+    # PASSO 6 — Caches Xcode (tudo regenerado; nao quebra desenvolvimento)
     # ------------------------------------------------------------------
-    _step_header 6 "Caches iOS/Swift (SwiftPM, Carthage, logs Xcode)"
-    echo -e "${C_DIM}  Apaga: ~/Library/Caches/org.swift.swiftpm${C_RESET}"
+    _step_header 6 "Caches Xcode (DerivedData, DeviceSupport, SwiftPM, Carthage)"
+    echo -e "${C_DIM}  Apaga: ~/Library/Developer/Xcode/DerivedData (indices e builds)${C_RESET}"
+    echo -e "${C_DIM}         ~/Library/Developer/Xcode/iOS DeviceSupport (simbolos de debug)${C_RESET}"
+    echo -e "${C_DIM}         ~/Library/Caches/org.swift.swiftpm${C_RESET}"
     echo -e "${C_DIM}         ~/Library/Caches/org.carthage.CarthageKit${C_RESET}"
     echo -e "${C_DIM}         ~/Library/Logs/CoreSimulator  ~/Library/Logs/DiagnosticReports${C_RESET}"
-    echo -e "${C_DIM}  Impacto: proximo build Xcode re-baixa pacotes Swift/Carthage${C_RESET}"
-    echo -e "${C_DIM}           Logs sao apenas registros — builds e simuladores nao afetados${C_RESET}"
+    echo -e "${C_GREEN}  - DeviceSupport mantem as 2 versoes de iOS mais recentes${C_RESET}"
+    echo -e "${C_DIM}  Impacto: DerivedData e recriado sozinho — so o proximo build demora mais${C_RESET}"
+    echo -e "${C_DIM}           Versoes antigas de DeviceSupport voltam ao reconectar o aparelho${C_RESET}"
+    echo -e "${C_DIM}           Simuladores e projetos nao sao afetados${C_RESET}"
     if _ask "Limpar?"; then
-        selected+=(swiftpm_cache carthage_cache xcode_sim_logs)
+        selected+=(xcode xcode_device_support swiftpm_cache carthage_cache xcode_sim_logs)
     fi
 
     # ------------------------------------------------------------------
@@ -293,9 +297,11 @@ run_wizard() {
     # ------------------------------------------------------------------
     # PASSO 9 — Docker
     # ------------------------------------------------------------------
-    _step_header 9 "Docker (VMs e volumes nao usados)"
-    echo -e "${C_DIM}  Apaga: ~/Library/Containers/com.docker.docker/Data/vms${C_RESET}"
+    _step_header 9 "Docker (imagens, cache de build e volumes sem uso)"
+    echo -e "${C_DIM}  Apaga: containers parados, redes orfas e cache de build${C_RESET}"
+    echo -e "${C_DIM}         imagens sem container e sem uso ha mais de 30 dias${C_RESET}"
     echo -e "${C_DIM}         volumes Docker orphaned (containers que nao existem mais)${C_RESET}"
+    echo -e "${C_GREEN}  - Imagens em uso e o disco da VM nao sao tocados${C_RESET}"
     echo -e "${C_DIM}  Impacto: medio — volumes podem ter dados de containers parados${C_RESET}"
     if _ask "Limpar?"; then
         selected+=(docker volumes)
@@ -315,10 +321,11 @@ run_wizard() {
     # PASSO A — Emuladores Android (AVD) — ALTO RISCO
     # ------------------------------------------------------------------
     _step_header A "Emuladores Android (AVDs)" high
-    echo -e "${C_RED}  Apaga: ~/.android/avd — TODOS os emuladores Android${C_RESET}"
-    echo -e "${C_RED}  - Os emuladores sao removidos permanentemente${C_RESET}"
-    echo -e "${C_RED}  - Apps instalados nos emuladores serao perdidos${C_RESET}"
-    echo -e "${C_RED}  - Precisara recriar AVDs no Android Studio > Device Manager${C_RESET}"
+    echo -e "${C_RED}  Apaga: ~/.android/avd — emuladores Android${C_RESET}"
+    echo -e "${C_GREEN}  - 1 emulador e sempre preservado (o usado mais recentemente)${C_RESET}"
+    echo -e "${C_RED}  - Os demais sao removidos permanentemente${C_RESET}"
+    echo -e "${C_RED}  - Apps instalados nos emuladores removidos serao perdidos${C_RESET}"
+    echo -e "${C_RED}  - Precisara recriar os AVDs no Android Studio > Device Manager${C_RESET}"
     echo -e "${C_DIM}  Use apenas para comecar do zero com os emuladores.${C_RESET}"
     echo ""
     if _ask "Apagar emuladores Android?" "force_no"; then
@@ -330,9 +337,10 @@ run_wizard() {
     # ------------------------------------------------------------------
     _step_header B "Simuladores iOS" high
     echo -e "${C_RED}  Apaga: ~/Library/Developer/CoreSimulator/Devices${C_RESET}"
-    echo -e "${C_RED}  - TODOS os simuladores iOS sao removidos permanentemente${C_RESET}"
+    echo -e "${C_GREEN}  - 1 simulador e sempre preservado (iPhone do iOS mais recente)${C_RESET}"
+    echo -e "${C_GREEN}    Ele e apenas resetado (erase) — continua utilizavel${C_RESET}"
+    echo -e "${C_RED}  - Os demais simuladores sao removidos permanentemente${C_RESET}"
     echo -e "${C_RED}  - Apps instalados nos simuladores serao perdidos${C_RESET}"
-    echo -e "${C_RED}  - Xcode recria simuladores padrao ao abrir${C_RESET}"
     echo -e "${C_RED}  - Simuladores customizados precisarao ser recriados em${C_RESET}"
     echo -e "${C_RED}    Window > Devices and Simulators${C_RESET}"
     echo -e "${C_DIM}  Use apenas para comecar do zero com os simuladores.${C_RESET}"
@@ -345,14 +353,31 @@ run_wizard() {
     # PASSO C — Android SDK Platforms — ALTO RISCO
     # ------------------------------------------------------------------
     _step_header C "Android SDK Platforms" high
-    echo -e "${C_RED}  Apaga: ~/Library/Android/sdk/platforms/android-*${C_RESET}"
-    echo -e "${C_RED}  - TODAS as versoes do SDK Android instaladas${C_RESET}"
+    echo -e "${C_RED}  Apaga: \$ANDROID_SDK_ROOT/platforms ou ~/Library/Android/sdk/platforms${C_RESET}"
+    echo -e "${C_GREEN}  - A plataforma mais recente e sempre preservada${C_RESET}"
+    echo -e "${C_RED}  - As demais versoes do SDK sao removidas${C_RESET}"
     echo -e "${C_RED}  - Projetos que exigem versao especifica nao compilarao${C_RESET}"
     echo -e "${C_RED}  - Reinstalacao via Android Studio > SDK Manager${C_RESET}"
     echo -e "${C_DIM}  Use apenas para limpar e reinstalar o SDK do zero.${C_RESET}"
     echo ""
     if _ask "Apagar Android SDK Platforms?" "force_no"; then
         selected+=(android_sdk_old)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO D — Runtimes de simulador iOS — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header D "Runtimes de simulador iOS" high
+    echo -e "${C_RED}  Apaga: runtimes baixadas (/Library/Developer/CoreSimulator/Volumes)${C_RESET}"
+    echo -e "${C_GREEN}  - A runtime mais recente e sempre preservada${C_RESET}"
+    echo -e "${C_GREEN}  - Runtimes com simulador criado em cima tambem ficam${C_RESET}"
+    echo -e "${C_RED}  - As demais sao removidas via 'simctl runtime delete'${C_RESET}"
+    echo -e "${C_RED}  - Cada runtime pesa ~8 GB e o download de volta e demorado${C_RESET}"
+    echo -e "${C_DIM}  Costuma ser o maior item de disco de quem atualiza o Xcode.${C_RESET}"
+    echo -e "${C_DIM}  Reinstalacao: Xcode > Settings > Components.${C_RESET}"
+    echo ""
+    if _ask "Apagar runtimes de simulador sem uso?" "force_no"; then
+        selected+=(ios_simulator_runtimes)
     fi
 
     # ------------------------------------------------------------------

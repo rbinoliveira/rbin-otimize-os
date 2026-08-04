@@ -83,11 +83,12 @@ format_bytes() {
 
 get_disk_categories() {
     # Android/iOS categories are intentionally excluded to preserve dev environments:
-    #   xcode, xcode_archives, xcode_device_support, ios_simulators,
-    #   cocoapods_cache, android_studio, gradle,
+    #   xcode_archives, ios_simulators, cocoapods_cache, android_studio, gradle,
     #   xcode_app, xcode_developer_full, xcode_simulator_full, xcode_command_line_tools,
     #   android_studio_app, android_library, android_application_support, gradle_full
-    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices"
+    # xcode (DerivedData) e xcode_device_support entram porque sao regenerados
+    # sozinhos; ios_simulator_runtimes preserva a runtime mais nova e as em uso.
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support"
 
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
@@ -459,8 +460,18 @@ get_category_path() {
         android_project_builds) echo "" ;;  # scan-based
         ios_project_builds) echo "" ;;      # scan-based
         android_avd) echo "$(get_user_home)/.android/avd" ;;
-        android_sdk_old) echo "$(get_user_home)/Library/Android/sdk/platforms" ;;
+        android_sdk_old)
+            # macOS e Linux instalam o SDK em lugares diferentes
+            if command -v get_android_sdk_root >/dev/null 2>&1 && get_android_sdk_root >/dev/null 2>&1; then
+                echo "$(get_android_sdk_root)/platforms"
+            elif is_macos; then
+                echo "$(get_user_home)/Library/Android/sdk/platforms"
+            else
+                echo "$(get_user_home)/Android/Sdk/platforms"
+            fi
+            ;;
         ios_simulator_devices) is_macos && echo "$(get_user_home)/Library/Developer/CoreSimulator/Devices" || echo "" ;;
+        ios_simulator_runtimes) echo "" ;;  # gerenciado via simctl runtime
         *)
             echo ""
             ;;

@@ -162,7 +162,7 @@ _run_categories() {
         echo -e "  ${C_DIM}[$i/$total]${C_RESET} Limpando ${C_WHITE}${cat}${C_RESET}..."
         set +e
         case "$cat" in
-            android_avd|android_sdk_old)
+            android_avd|android_sdk_old|docker)
                 delete_category_files "$cat" "$MIN_AGE_DAYS" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"
                 rc=${PIPESTATUS[0]}
                 ;;
@@ -332,10 +332,11 @@ run_wizard() {
     # PASSO A — Emuladores Android (AVD) — ALTO RISCO
     # ------------------------------------------------------------------
     _step_header A "Emuladores Android (AVDs)" high
-    echo -e "${C_RED}  Apaga: ~/.android/avd — TODOS os emuladores Android${C_RESET}"
-    echo -e "${C_RED}  - Os emuladores sao removidos permanentemente${C_RESET}"
-    echo -e "${C_RED}  - Apps instalados nos emuladores serao perdidos${C_RESET}"
-    echo -e "${C_RED}  - Precisara recriar AVDs no Android Studio > Device Manager${C_RESET}"
+    echo -e "${C_RED}  Apaga: ~/.android/avd — emuladores Android${C_RESET}"
+    echo -e "${C_GREEN}  - 1 emulador e sempre preservado (o usado mais recentemente)${C_RESET}"
+    echo -e "${C_RED}  - Os demais sao removidos permanentemente${C_RESET}"
+    echo -e "${C_RED}  - Apps instalados nos emuladores removidos serao perdidos${C_RESET}"
+    echo -e "${C_RED}  - Precisara recriar os AVDs no Android Studio > Device Manager${C_RESET}"
     echo -e "${C_DIM}  Use apenas para comecar do zero com os emuladores.${C_RESET}"
     echo ""
     if _ask "Apagar emuladores Android?" "force_no"; then
@@ -346,8 +347,9 @@ run_wizard() {
     # PASSO B — Android SDK Platforms — ALTO RISCO
     # ------------------------------------------------------------------
     _step_header B "Android SDK Platforms" high
-    echo -e "${C_RED}  Apaga: ~/Android/Sdk/platforms/android-* (caminho padrao Linux)${C_RESET}"
-    echo -e "${C_RED}  - TODAS as versoes do SDK Android instaladas${C_RESET}"
+    echo -e "${C_RED}  Apaga: \$ANDROID_SDK_ROOT/platforms ou ~/Android/Sdk/platforms${C_RESET}"
+    echo -e "${C_GREEN}  - A plataforma mais recente e sempre preservada${C_RESET}"
+    echo -e "${C_RED}  - As demais versoes do SDK sao removidas${C_RESET}"
     echo -e "${C_RED}  - Projetos que exigem versao especifica nao compilarao${C_RESET}"
     echo -e "${C_RED}  - Reinstalacao via Android Studio > SDK Manager${C_RESET}"
     echo -e "${C_DIM}  Use apenas para limpar e reinstalar o SDK do zero.${C_RESET}"
