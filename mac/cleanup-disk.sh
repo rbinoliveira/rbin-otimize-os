@@ -117,9 +117,13 @@ Opcoes:
     --min-age=N      So limpa arquivos mais velhos que N dias
     -h, --help       Esta ajuda
 
-O wizard guia por 10 passos agrupados por contexto,
-mais 3 passos de alto risco (AVD, SDK, Simuladores iOS)
+O wizard guia por 18 passos agrupados por contexto,
+mais 11 passos de alto risco (A-K: AVD, Simuladores iOS, SDK Platforms,
+Runtimes iOS, componentes do Android SDK, Xcode Archives, versoes de
+Node/Python/Ruby, Xcodes antigos, Time Machine, sistema, Downloads)
 que sempre pedem confirmacao explicita.
+
+Variaveis: STALE_PROJECT_DAYS=30  XCODE_DEVICE_SUPPORT_KEEP=2
 EOF
 }
 
@@ -166,7 +170,8 @@ _run_categories() {
         # High-risk categories have their own interactive prompt — do NOT redirect
         # output so the user can see it. All others go to the log file.
         case "$cat" in
-            android_avd|ios_simulator_devices|ios_simulator_runtimes|android_sdk_old|docker)
+            android_avd|ios_simulator_devices|ios_simulator_runtimes|android_sdk_old|docker|\
+            xcode_old_apps|tm_snapshots|system_caches)
                 delete_category_files "$cat" "$MIN_AGE_DAYS" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"
                 rc=${PIPESTATUS[0]}
                 ;;
@@ -318,6 +323,117 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
+    # PASSO 11 — Gradle (versoes antigas)
+    # ------------------------------------------------------------------
+    _step_header 11 "Gradle (versoes antigas de caches, wrapper e daemon)"
+    echo -e "${C_DIM}  Apaga: ~/.gradle/caches/<versao>  ~/.gradle/wrapper/dists/gradle-<versao>${C_RESET}"
+    echo -e "${C_DIM}         ~/.gradle/daemon/<versao> + logs de daemon + jars-N/transforms-N antigos${C_RESET}"
+    echo -e "${C_DIM}         ~/.gradle/jdks: arquivos .tar.gz ja extraidos e JDKs substituidos${C_RESET}"
+    echo -e "${C_GREEN}  - Mantem a versao mais nova e as usadas pelo wrapper dos projetos em ~/dev${C_RESET}"
+    echo -e "${C_GREEN}  - ~/.gradle/caches/modules-2 (dependencias) e gradle.properties nao sao tocados${C_RESET}"
+    echo -e "${C_DIM}  Impacto: projeto com Gradle antigo fora de ~/dev re-baixa a distribuicao (~150 MB)${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(gradle_old_versions)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 12 — Temporarios antigos
+    # ------------------------------------------------------------------
+    _step_header 12 "Temporarios antigos (\$TMPDIR e /private/tmp)"
+    echo -e "${C_DIM}  Apaga: caches de Jest/Metro em \$TMPDIR (jest_*, metro-*, haste-map-*)${C_RESET}"
+    echo -e "${C_DIM}         arquivos seus com mais de 3 dias em \$TMPDIR e /private/tmp${C_RESET}"
+    echo -e "${C_GREEN}  - Sockets, .lock, .pid e arquivos recentes nao sao tocados${C_RESET}"
+    echo -e "${C_DIM}  Impacto: nenhum — proximo teste/bundle recria o cache${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(tmp_old)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 13 — Xcode extras
+    # ------------------------------------------------------------------
+    _step_header 13 "Xcode extras (DeviceSupport watch/tv/mac, previews, device logs)"
+    echo -e "${C_DIM}  Apaga: watchOS/tvOS/macOS/visionOS DeviceSupport antigos${C_RESET}"
+    echo -e "${C_DIM}         iOS Device Logs, UserData/Previews (SwiftUI), DocumentationCache${C_RESET}"
+    echo -e "${C_DIM}         CoreSimulator/Caches + simuladores 'unavailable' (runtime removida)${C_RESET}"
+    echo -e "${C_DIM}         XCTestDevices (clones de simulador de testes paralelos)${C_RESET}"
+    echo -e "${C_GREEN}  - Mantem as 2 versoes mais novas de cada DeviceSupport${C_RESET}"
+    echo -e "${C_GREEN}  - Previews so com Xcode fechado; cache de simulador so com Simulator fechado${C_RESET}"
+    echo -e "${C_DIM}  Impacto: primeiro preview SwiftUI e primeiro boot de simulador mais lentos${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(xcode_extras)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 14 — Android Studio extras
+    # ------------------------------------------------------------------
+    _step_header 14 "Android Studio / JetBrains extras (cache do SDK, snapshots, IDEs antigos)"
+    echo -e "${C_DIM}  Apaga: ~/.android/cache  ~/.android/build-cache${C_RESET}"
+    echo -e "${C_DIM}         snapshots de boot rapido dos AVDs (*.avd/snapshots)${C_RESET}"
+    echo -e "${C_DIM}         config/cache/logs de versoes antigas do Android Studio e JetBrains${C_RESET}"
+    echo -e "${C_GREEN}  - Os emuladores continuam; snapshots so sao apagados com emulador fechado${C_RESET}"
+    echo -e "${C_GREEN}  - Mantem a versao mais nova de cada IDE/canal (estavel, Preview)${C_RESET}"
+    echo -e "${C_DIM}  Impacto: proximo boot do emulador e 'frio' (~30s a mais)${C_RESET}"
+    echo -e "${C_DIM}           configs de versoes antigas do IDE nao poderao mais ser importadas${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(android_extras)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 15 — Caches de apps Chromium/Electron e editores
+    # ------------------------------------------------------------------
+    _step_header 15 "Caches de apps (Chrome, Brave, Slack, Notion, Cursor, VS Code…)"
+    echo -e "${C_DIM}  Apaga: Cache, Code Cache, GPUCache, Dawn*/ShaderCache dos apps Chromium/Electron${C_RESET}"
+    echo -e "${C_DIM}         CachedData antigo, CachedExtensionVSIXs e logs (+3 dias) de VS Code/Cursor${C_RESET}"
+    echo -e "${C_DIM}         workspaceStorage de projetos cuja pasta nao existe mais${C_RESET}"
+    echo -e "${C_DIM}         caches de apps da App Store (~/Library/Containers/*/Data/Library/Caches)${C_RESET}"
+    echo -e "${C_DIM}  Obs: o macOS pode perguntar se o Terminal pode acessar dados de outros apps${C_RESET}"
+    echo -e "${C_GREEN}  - Perfis, senhas, favoritos, cookies e extensoes nao sao tocados${C_RESET}"
+    echo -e "${C_DIM}  Impacto: apps abrem um pouco mais devagar na primeira vez${C_RESET}"
+    echo -e "${C_DIM}           (de preferencia feche os apps antes)${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(electron_caches editor_caches container_caches)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 16 — Outros caches de ferramentas
+    # ------------------------------------------------------------------
+    _step_header 16 "Outros caches (Prisma, Puppeteer, Firebase, uv, Cargo, CocoaPods…)"
+    echo -e "${C_DIM}  Apaga: ~/.yarn/berry/cache  ~/.cache/node/corepack${C_RESET}"
+    echo -e "${C_DIM}         ~/.cache/{puppeteer,prisma,firebase/emulators,uv,pre-commit,node-gyp}${C_RESET}"
+    echo -e "${C_DIM}         ~/.node-gyp ~/.electron-gyp ~/.cargo/registry/src ~/.cocoapods/repos/trunk${C_RESET}"
+    echo -e "${C_DIM}         firmwares .ipsw baixados em ~/Library/iTunes${C_RESET}"
+    echo -e "${C_GREEN}  - Repos privados do CocoaPods e modelos de IA (huggingface/ollama) ficam${C_RESET}"
+    echo -e "${C_DIM}  Impacto: re-download sob demanda (Puppeteer: npx puppeteer browsers install)${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(misc_dev_caches ios_firmware)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 17 — Homebrew autoremove
+    # ------------------------------------------------------------------
+    _step_header 17 "Homebrew (dependencias orfas)"
+    echo -e "${C_DIM}  Executa: brew autoremove${C_RESET}"
+    echo -e "${C_GREEN}  - So remove formulas instaladas como dependencia que nada mais usa${C_RESET}"
+    echo -e "${C_DIM}  Impacto: baixo — formulas que voce instalou direto nao sao tocadas${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(homebrew_autoremove)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO 18 — Dependencias de projetos parados
+    # ------------------------------------------------------------------
+    _step_header 18 "Dependencias de projetos parados ha +${STALE_PROJECT_DAYS} dias"
+    echo -e "${C_DIM}  Apaga, em ~/dev ~/projects ~/workspace ~/code:${C_RESET}"
+    echo -e "${C_DIM}         Pods/ .venv/ .gradle/ .cxx/ .dart_tool/ .nx/ .angular/ .svelte-kit/${C_RESET}"
+    echo -e "${C_DIM}         __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/${C_RESET}"
+    echo -e "${C_GREEN}  - So em projetos sem nenhum arquivo alterado nos ultimos ${STALE_PROJECT_DAYS} dias${C_RESET}"
+    echo -e "${C_DIM}  Impacto: ao voltar ao projeto rode pod install / pip install -r ... / etc.${C_RESET}"
+    echo -e "${C_DIM}           pacotes instalados a mao num .venv (fora do requirements) se perdem${C_RESET}"
+    if _ask "Limpar?"; then
+        selected+=(stale_project_deps)
+    fi
+
+    # ------------------------------------------------------------------
     # PASSO A — Emuladores Android (AVD) — ALTO RISCO
     # ------------------------------------------------------------------
     _step_header A "Emuladores Android (AVDs)" high
@@ -381,6 +497,112 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
+    # PASSO E — Android SDK: componentes sem uso — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header E "Android SDK: system images, NDKs e build-tools sem uso" high
+    echo -e "${C_RED}  Apaga: system-images que nenhum AVD usa${C_RESET}"
+    echo -e "${C_RED}         NDKs antigos e build-tools antigos${C_RESET}"
+    echo -e "${C_GREEN}  - Fica a system image de maior API e as usadas por AVDs${C_RESET}"
+    echo -e "${C_GREEN}  - Fica o NDK mais novo e os fixados em ndkVersion nos projetos de ~/dev${C_RESET}"
+    echo -e "${C_GREEN}  - Ficam as 2 build-tools mais novas e as fixadas em buildToolsVersion${C_RESET}"
+    echo -e "${C_RED}  - Projetos fora de ~/dev com NDK antigo vao re-baixar (~1-2 GB cada)${C_RESET}"
+    echo -e "${C_RED}  - Criar AVD com imagem antiga exige baixar de novo no SDK Manager${C_RESET}"
+    echo ""
+    if _ask "Apagar componentes do Android SDK sem uso?" "force_no"; then
+        selected+=(android_sdk_unused)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO F — Xcode Archives antigos — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header F "Xcode Archives antigos" high
+    echo -e "${C_RED}  Apaga: ~/Library/Developer/Xcode/Archives com mais de 90 dias${C_RESET}"
+    echo -e "${C_GREEN}  - O archive mais recente de cada app e sempre preservado${C_RESET}"
+    echo -e "${C_RED}  - Archives guardam os dSYMs: crashes de versoes antigas publicadas${C_RESET}"
+    echo -e "${C_RED}    nao poderao mais ser simbolizados (a menos que estejam no Crashlytics/Sentry)${C_RESET}"
+    echo -e "${C_RED}  - Nao sera possivel reenviar builds antigos para a App Store${C_RESET}"
+    echo ""
+    if _ask "Apagar Xcode Archives antigos?" "force_no"; then
+        selected+=(xcode_archives_old)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO G — Versoes antigas de Node/Python/Ruby — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header G "Versoes antigas de Node, Python e Ruby" high
+    echo -e "${C_RED}  Apaga: versoes em nvm, fnm, volta, mise, asdf, pyenv, rbenv, chruby${C_RESET}"
+    echo -e "${C_GREEN}  - Fica a versao mais nova de cada gerenciador${C_RESET}"
+    echo -e "${C_GREEN}  - Ficam as fixadas em .nvmrc/.node-version/.python-version/.ruby-version/${C_RESET}"
+    echo -e "${C_GREEN}    .tool-versions/mise.toml dos projetos e as globais (nvm default, pyenv global)${C_RESET}"
+    echo -e "${C_GREEN}  - Virtualenvs do pyenv e versoes com processo rodando nao sao tocados${C_RESET}"
+    echo -e "${C_RED}  - Pacotes globais (npm -g, pip, gems) das versoes apagadas se perdem${C_RESET}"
+    echo -e "${C_RED}  - Projeto sem arquivo de versao que dependia de versao antiga quebra${C_RESET}"
+    echo ""
+    if _ask "Apagar versoes antigas de runtimes?" "force_no"; then
+        selected+=(runtime_old_versions)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO H — Xcodes antigos — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header H "Xcodes antigos em /Applications" high
+    echo -e "${C_RED}  Apaga: /Applications/Xcode*.app extras (cada um tem 10+ GB)${C_RESET}"
+    echo -e "${C_GREEN}  - Fica o Xcode selecionado (xcode-select -p) e o de versao mais nova${C_RESET}"
+    echo -e "${C_RED}  - Nao sera possivel compilar com o SDK/Swift das versoes removidas${C_RESET}"
+    echo -e "${C_DIM}  Pode pedir senha (sudo) se o Xcode veio da App Store.${C_RESET}"
+    echo ""
+    if _ask "Apagar Xcodes antigos?" "force_no"; then
+        selected+=(xcode_old_apps)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO I — Snapshots locais do Time Machine — ALTO RISCO
+    # ------------------------------------------------------------------
+    local tm_count; tm_count=$(list_tm_local_snapshots | grep -c . || true)
+    _step_header I "Snapshots locais do Time Machine (${tm_count} encontrados)" high
+    echo -e "${C_RED}  Apaga: snapshots APFS locais do disco de boot (tmutil deletelocalsnapshots)${C_RESET}"
+    echo -e "${C_RED}  - Perde os pontos de restauracao locais (os backups no disco externo ficam)${C_RESET}"
+    echo -e "${C_DIM}  O macOS ja apaga sozinho quando falta espaco, mas o espaco aparece como${C_RESET}"
+    echo -e "${C_DIM}  'purgeable' e alguns apps/instaladores nao contam com ele. Pede senha (sudo).${C_RESET}"
+    echo ""
+    if _ask "Apagar snapshots locais do Time Machine?" "force_no"; then
+        selected+=(tm_snapshots)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO J — Caches e logs do sistema — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header J "Caches e logs do sistema (sudo)" high
+    echo -e "${C_RED}  Apaga: /Library/Caches/* (exceto com.apple.*)${C_RESET}"
+    echo -e "${C_RED}         /Library/Logs/DiagnosticReports  logs .gz/.bz2 em /private/var/log${C_RESET}"
+    echo -e "${C_RED}  - Crash reports do sistema somem (nao da mais para enviar a Apple/devs)${C_RESET}"
+    echo -e "${C_RED}  - Apps/atualizadores de terceiros regeneram o cache (1a execucao mais lenta)${C_RESET}"
+    echo -e "${C_DIM}  Pede senha (sudo).${C_RESET}"
+    echo ""
+    if _ask "Apagar caches e logs do sistema?" "force_no"; then
+        selected+=(system_caches)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO K — Instaladores antigos em Downloads — ALTO RISCO
+    # ------------------------------------------------------------------
+    _step_header K "Instaladores antigos em ~/Downloads" high
+    echo -e "${C_RED}  Apaga: .dmg .pkg .xip .iso em ~/Downloads com mais de 30 dias${C_RESET}"
+    local dl_line dl_n=0
+    while IFS= read -r dl_line; do
+        [[ -z "$dl_line" ]] && continue
+        dl_n=$((dl_n + 1))
+        [[ $dl_n -le 15 ]] && echo -e "${C_DIM}    - ${dl_line##*/}${C_RESET}"
+    done < <(list_extra_category_targets downloads_installers)
+    [[ $dl_n -gt 15 ]] && echo -e "${C_DIM}    ... e mais $((dl_n - 15))${C_RESET}"
+    [[ $dl_n -eq 0 ]] && echo -e "${C_GREEN}  - Nenhum encontrado${C_RESET}"
+    echo -e "${C_RED}  - Sao arquivos seus: instaladores de versoes antigas podem nao existir mais online${C_RESET}"
+    echo ""
+    if [[ $dl_n -gt 0 ]] && _ask "Apagar esses instaladores?" "force_no"; then
+        selected+=(downloads_installers)
+    fi
+
+    # ------------------------------------------------------------------
     # Resumo e execucao
     # ------------------------------------------------------------------
     echo ""
@@ -427,7 +649,11 @@ _show_category_analysis() {
         derived_data xcode_logs swiftpm_cache carthage_cache \
         pip_cache gem_cache ruby_bundler_cache nuget_cache \
         homebrew_cache nvm_cache vscode_cache trash \
-        android_project_builds ios_project_builds"
+        android_project_builds ios_project_builds \
+        gradle_old_versions tmp_old xcode_extras android_extras \
+        electron_caches editor_caches misc_dev_caches ios_firmware \
+        android_sdk_unused xcode_archives_old container_caches stale_project_deps \
+        runtime_old_versions xcode_old_apps system_caches downloads_installers"
 
     # Colors already defined
     local inner=$(( ${#C_RESET} > 0 ? 62 : 62 ))
@@ -481,11 +707,16 @@ _show_category_analysis() {
     local cat_results=()
 
     for cat in $categories; do
-        local path; path=$(get_category_path "$cat" 2>/dev/null || true)
-        [[ -z "$path" || ! -e "$path" ]] && continue
-        local bytes
-        bytes=$( { du -sk "$path" 2>/dev/null || true; } \
-            | awk 'NR==1{print $1*1024; exit} END{if(NR==0) print 0}' )
+        local path bytes
+        if is_extra_cleanup_category "$cat"; then
+            path="(varios)"
+            bytes=$(extra_category_bytes "$cat")
+        else
+            path=$(get_category_path "$cat" 2>/dev/null || true)
+            [[ -z "$path" || ! -e "$path" ]] && continue
+            bytes=$( { du -sk "$path" 2>/dev/null || true; } \
+                | awk 'NR==1{print $1*1024; exit} END{if(NR==0) print 0}' )
+        fi
         [[ -z "$bytes" ]] && bytes=0
         [[ $bytes -eq 0 ]] && continue
         cat_results+=("${bytes}|${cat}|${path}")
@@ -498,7 +729,7 @@ _show_category_analysis() {
     local grand=0
 
     # Group headers in order
-    local groups="Sistema JS_TS Test iOS_Swift Python_Ruby Pkgs Misc"
+    local groups="Sistema JS_TS Test iOS_Swift Android Python_Ruby Pkgs Misc"
     local group_printed=""
 
     _group_label() {
@@ -507,6 +738,7 @@ _show_category_analysis() {
             JS_TS)      echo "JS / TS" ;;
             Test)       echo "Build & Test" ;;
             iOS_Swift)  echo "iOS / Swift" ;;
+            Android)    echo "Android" ;;
             Python_Ruby) echo "Python · Ruby · .NET" ;;
             Pkgs)       echo "Pkg Managers" ;;
             Misc)       echo "Apps / Misc" ;;
@@ -515,16 +747,23 @@ _show_category_analysis() {
 
     _cat_group() {
         case "$1" in
-            caches|logs|trash)                              echo "Sistema" ;;
+            caches|logs|trash|tmp_old|system_caches|\
+            downloads_installers)                           echo "Sistema" ;;
             npm_cache|yarn_cache|pnpm_store|bun_cache|\
             expo_cache|turborepo_cache)                     echo "JS_TS" ;;
             jest_cache|playwright_cache|cypress_cache)      echo "Test" ;;
             derived_data|xcode_logs|swiftpm_cache|\
-            carthage_cache|ios_project_builds)              echo "iOS_Swift" ;;
+            carthage_cache|ios_project_builds|\
+            xcode_extras|ios_firmware|xcode_archives_old|\
+            xcode_old_apps)                                 echo "iOS_Swift" ;;
+            android_project_builds|gradle_old_versions|\
+            android_extras|android_sdk_unused)              echo "Android" ;;
             pip_cache|gem_cache|ruby_bundler_cache|\
             nuget_cache)                                    echo "Python_Ruby" ;;
-            homebrew_cache|nvm_cache)                       echo "Pkgs" ;;
-            vscode_cache|android_project_builds)            echo "Misc" ;;
+            homebrew_cache|nvm_cache|misc_dev_caches|\
+            runtime_old_versions|stale_project_deps)        echo "Pkgs" ;;
+            vscode_cache|electron_caches|editor_caches|\
+            container_caches)                               echo "Misc" ;;
             *)                                              echo "Misc" ;;
         esac
     }
@@ -561,6 +800,33 @@ _show_category_analysis() {
         done <<< "$group_rows"
         _aline ""
     done
+
+    # Itens grandes que o wizard nunca apaga: so para voce decidir manualmente.
+    local info_rows="" info_path info_label info_bytes
+    while IFS='|' read -r info_label info_path; do
+        [[ -e "$info_path" ]] || continue
+        info_bytes=$( { du -sk "$info_path" 2>/dev/null || true; } | awk 'NR==1{print $1*1024; exit} END{if(NR==0) print 0}')
+        [[ "$info_bytes" =~ ^[0-9]+$ && $info_bytes -gt 0 ]] || continue
+        info_rows+="  ${C_WHITE}$(printf '%-24s' "$info_label")${C_RESET}  $(printf '%9s' "$(_ahuman "$info_bytes")")"$'\n'
+    done <<INFO
+Backups de iPhone|${HOME}/Library/Application Support/MobileSync/Backup
+Modelos HuggingFace|${HOME}/.cache/huggingface
+Modelos Ollama|${HOME}/.ollama/models
+Modelos LM Studio|${HOME}/.lmstudio/models
+Go modcache|${HOME}/go/pkg/mod
+Maven (~/.m2)|${HOME}/.m2/repository
+Docker Desktop (VM)|${HOME}/Library/Containers/com.docker.docker/Data/vms
+OrbStack|${HOME}/.orbstack
+INFO
+    if [[ -n "$info_rows" ]]; then
+        _asep
+        _aline "  ${C_BOLD}${C_BLUE}Nao apagado (so informativo)${C_RESET}"
+        while IFS= read -r row; do
+            [[ -z "$row" ]] && continue
+            _aline "$row"
+        done <<< "$info_rows"
+        _aline ""
+    fi
 
     _asep
     local grand_h; grand_h=$(_ahuman "$grand")

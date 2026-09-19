@@ -88,7 +88,7 @@ get_disk_categories() {
     #   android_studio_app, android_library, android_application_support, gradle_full
     # xcode (DerivedData) e xcode_device_support entram porque sao regenerados
     # sozinhos; ios_simulator_runtimes preserva a runtime mais nova e as em uso.
-    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support"
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support gradle_old_versions tmp_old xcode_extras android_extras electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
 
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
@@ -454,8 +454,11 @@ get_category_path() {
         turborepo_cache) echo "$(get_user_home)/.turbo" ;;
         jest_cache) echo "" ;;  # /tmp/jest-* wildcard, handled in scan
         playwright_cache) is_macos && echo "$(get_user_home)/Library/Caches/ms-playwright" || echo "$(get_user_home)/.cache/ms-playwright" ;;
-        cypress_cache) echo "$(get_user_home)/.cache/Cypress" ;;
-        pnpm_store) echo "$(get_user_home)/.pnpm-store" ;;
+        cypress_cache) is_macos && echo "$(get_user_home)/Library/Caches/Cypress" || echo "$(get_user_home)/.cache/Cypress" ;;
+        pnpm_store)
+            # macOS: pnpm 7+ usa ~/Library/pnpm/store
+            if [[ -d "$(get_user_home)/Library/pnpm/store" ]]; then echo "$(get_user_home)/Library/pnpm/store"; else echo "$(get_user_home)/.pnpm-store"; fi
+            ;;
         bun_cache) echo "$(get_user_home)/.bun/install/cache" ;;
         android_project_builds) echo "" ;;  # scan-based
         ios_project_builds) echo "" ;;      # scan-based

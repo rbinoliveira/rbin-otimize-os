@@ -66,8 +66,9 @@ XCODE_DEVICE_SUPPORT_KEEP="${XCODE_DEVICE_SUPPORT_KEEP:-2}"
 
 # Diretorios de iOS DeviceSupport, da versao mais nova para a mais antiga.
 # Nomes tem a forma "18.1.1 (22B91)" ou "16.4 (20E247) arm64e".
+# $1 opcional: outra pasta de DeviceSupport (ex.: "watchOS DeviceSupport").
 list_xcode_device_support() {
-    local base="$(get_user_home)/Library/Developer/Xcode/iOS DeviceSupport"
+    local base="$(get_user_home)/Library/Developer/Xcode/${1:-iOS DeviceSupport}"
     [[ -d "$base" ]] || return 1
     local d name ver rest major minor patch score
     for d in "$base"/*; do
@@ -313,6 +314,766 @@ pick_ios_simulator_dir_to_keep() {
     return 1
 }
 
+# ============ Categorias extras (macOS) ============
+# Cada categoria extra lista seus alvos (um caminho por linha) em
+# list_extra_category_targets. A exclusao, o preview e o painel de analise
+# usam a mesma lista, entao o tamanho mostrado e exatamente o que sera apagado.
+
+EXTRA_CLEANUP_CATEGORIES="gradle_old_versions tmp_old xcode_extras android_extras electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
+
+is_extra_cleanup_category() {
+    [[ " $EXTRA_CLEANUP_CATEGORIES " == *" $1 "* ]]
+}
+
+_extra_category_label() {
+    case "$1" in
+        gradle_old_versions) echo "Gradle: versoes antigas" ;;
+        tmp_old)             echo "Temporarios antigos" ;;
+        xcode_extras)        echo "Xcode: extras" ;;
+        android_extras)      echo "Android Studio: extras" ;;
+        electron_caches)     echo "Caches de apps Chromium/Electron" ;;
+        editor_caches)       echo "Caches de editores (VS Code/Cursor)" ;;
+        misc_dev_caches)     echo "Outros caches de dev" ;;
+        ios_firmware)        echo "Firmwares de iPhone/iPad" ;;
+        homebrew_autoremove) echo "Homebrew: dependencias orfas" ;;
+        android_sdk_unused)  echo "Android SDK: componentes sem uso" ;;
+        xcode_archives_old)  echo "Xcode Archives antigos" ;;
+        container_caches)    echo "Caches de apps sandboxed" ;;
+        stale_project_deps)  echo "Dependencias de projetos parados" ;;
+        runtime_old_versions) echo "Versoes antigas de Node/Python/Ruby" ;;
+        xcode_old_apps)      echo "Xcodes antigos" ;;
+        tm_snapshots)        echo "Snapshots locais do Time Machine" ;;
+        system_caches)       echo "Caches e logs do sistema" ;;
+        downloads_installers) echo "Instaladores antigos em Downloads" ;;
+        *)                   echo "$1" ;;
+    esac
+}
+
+_project_search_paths() {
+    local h; h="$(get_user_home)"
+    local p
+    for p in "$h/dev" "$h/projects" "$h/workspace" "$h/code"; do
+        [[ -d "$p" ]] && echo "$p"
+    done
+}
+
+# Ordena versoes (8.9 < 8.10) sem depender de sort -V.
+_sort_versions() {
+    awk -F. '{
+        key = ""
+        for (i = 1; i <= 4; i++) { n = $i; sub(/[^0-9].*/, "", n); key = key sprintf("%06d", n + 0) }
+        print key "|" $0
+    }' | sort | cut -d'|' -f2-
+}
+
+# Soma em bytes os caminhos recebidos no stdin (um por linha).
+_paths_bytes() {
+    tr '\n' '\0' | xargs -0 du -sk 2>/dev/null | awk '{ s += $1 } END { printf "%.0f", s * 1024 }'
+}
+
+# Versoes do Gradle fixadas pelo wrapper dos projetos locais.
+list_gradle_versions_in_use() {
+    local base
+    while IFS= read -r base; do
+        find "$base" \( -name node_modules -o -name .git -o -name build \) -prune -o \
+            -maxdepth 7 -name gradle-wrapper.properties -print 2>/dev/null
+    done < <(_project_search_paths) | while IFS= read -r f; do
+        sed -nE 's/^distributionUrl=.*gradle-(.+)-(bin|all)\.zip.*/\1/p' "$f" 2>/dev/null
+    done | sort -u
+}
+
+# Versoes antigas do Gradle: caches/<ver>, wrapper/dists/gradle-<ver>-*, daemon/<ver>.
+# Preserva a versao mais nova, as usadas pelo wrapper dos projetos e as que
+# tem daemon rodando. Tambem remove geracoes antigas de jars-N/transforms-N
+# e logs de daemon com mais de 1 dia. modules-2 (dependencias) nao e tocado.
+_gradle_old_targets() {
+    local g="$(get_user_home)/.gradle"
+    [[ -d "$g" ]] || return 0
+
+    local all
+    all=$( { ls -1 "$g/caches" "$g/daemon" 2>/dev/null
+             ls -1 "$g/wrapper/dists" 2>/dev/null | sed -nE 's/^gradle-(.+)-(bin|all)$/\1/p'
+           } | grep -E '^[0-9]+\.[0-9]' | sort -u)
+    if [[ -n "$all" ]]; then
+        local newest in_use ps_args ver d
+        newest=$(printf '%s\n' "$all" | _sort_versions | tail -1)
+        in_use=$(list_gradle_versions_in_use)
+        ps_args=$(ps -axo args= 2>/dev/null)
+        while IFS= read -r ver; do
+            [[ -z "$ver" || "$ver" == "$newest" ]] && continue
+            printf '%s\n' "$in_use" | grep -qxF "$ver" && continue
+            [[ "$ps_args" == *"gradle-${ver}-"* || "$ps_args" == *"-${ver}.jar"* ]] && continue
+            for d in "$g/caches/$ver" "$g/daemon/$ver" "$g/wrapper/dists/gradle-${ver}-bin" "$g/wrapper/dists/gradle-${ver}-all"; do
+                [[ -d "$d" ]] && echo "$d"
+            done
+        done <<< "$all"
+    fi
+
+    local prefix
+    for prefix in jars transforms; do
+        ls -1d "$g/caches/${prefix}-"[0-9]* 2>/dev/null \
+            | awk -F- '{ print $NF "|" $0 }' | sort -t'|' -k1,1n | sed '$d' | cut -d'|' -f2-
+    done
+
+    [[ -d "$g/daemon" ]] && find "$g/daemon" -maxdepth 2 -type f -name '*.log' -mtime +1 2>/dev/null
+
+    # JDKs de toolchain: os .tar.gz/.zip ja extraidos sobram depois da instalacao,
+    # e de cada JDK (vendor + major) so a instalacao mais nova e usada.
+    if [[ -d "$g/jdks" ]]; then
+        find "$g/jdks" -mindepth 1 -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) 2>/dev/null
+        ls -1 "$g/jdks" 2>/dev/null | grep -vE '\.(lock|tar\.gz|zip)$|^CACHEDIR\.TAG$' \
+            | awk '{ k = $0; sub(/\.[0-9]+$/, "", k); n = $0; sub(/^.*\./, "", n); if (n !~ /^[0-9]+$/) n = 0; print k "|" sprintf("%06d", n) "|" $0 }' \
+            | sort -t'|' -k1,1 -k2,2r \
+            | awk -F'|' -v base="$g/jdks" '$1 == last { print base "/" $3 } { last = $1 }'
+    fi
+    return 0
+}
+
+# Temporarios: caches de Jest/Metro no $TMPDIR (sempre regeneraveis) e
+# arquivos do usuario com mais de 3 dias em $TMPDIR e /private/tmp.
+# So arquivos regulares: sockets, locks e pids ficam.
+_tmp_old_targets() {
+    local uid; uid=$(id -u)
+    local tmpd="${TMPDIR:-}"
+    tmpd="${tmpd%/}"
+    if [[ -n "$tmpd" && -d "$tmpd" ]]; then
+        find "$tmpd" -mindepth 1 -maxdepth 1 -type d -user "$uid" \( -name 'jest_*' -o -name 'metro-*' \
+            -o -name 'haste-map-*' -o -name 'react-native-packager-cache-*' \) 2>/dev/null
+    fi
+    local d
+    for d in "$tmpd" /private/tmp; do
+        [[ -n "$d" && -d "$d" ]] || continue
+        find "$d" -type f -user "$uid" -mtime +3 \
+            ! -name '*.lock' ! -name '*.pid' ! -name '*.sock' \
+            ! -path '*/jest_*' ! -path '*/metro-*' ! -path '*/haste-map-*' \
+            ! -path '*/react-native-packager-cache-*' 2>/dev/null
+    done
+    return 0
+}
+
+# Xcode: DeviceSupport de watchOS/tvOS/macOS/visionOS (mantem as N mais novas),
+# logs de device, previews SwiftUI, documentacao e cache dyld dos simuladores.
+# Previews/documentacao so com Xcode fechado; cache dyld so sem simulador ligado.
+_xcode_extras_targets() {
+    local x="$(get_user_home)/Library/Developer/Xcode"
+    local keep="${XCODE_DEVICE_SUPPORT_KEEP:-2}"
+    local plat line idx
+    for plat in "watchOS DeviceSupport" "tvOS DeviceSupport" "macOS DeviceSupport" "visionOS DeviceSupport"; do
+        idx=0
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            idx=$((idx + 1))
+            [[ $idx -le $keep ]] && continue
+            echo "${line#*|}"
+        done < <(list_xcode_device_support "$plat" 2>/dev/null)
+    done
+
+    local d
+    for d in "$x/iOS Device Logs" "$x/watchOS Device Logs"; do
+        [[ -d "$d" ]] && echo "$d"
+    done
+
+    if ! pgrep -x Xcode >/dev/null 2>&1; then
+        for d in "$x/UserData/Previews" "$x/DocumentationCache"; do
+            [[ -d "$d" ]] && echo "$d"
+        done
+    fi
+
+    local sim_caches="$(get_user_home)/Library/Developer/CoreSimulator/Caches"
+    if [[ -d "$sim_caches" ]] && ! pgrep -x Simulator >/dev/null 2>&1; then
+        find "$sim_caches" -mindepth 1 -maxdepth 1 2>/dev/null
+    fi
+
+    # Clones de simulador criados para testes paralelos (xcodebuild -parallel-testing).
+    local xctest="$(get_user_home)/Library/Developer/XCTestDevices"
+    if [[ -d "$xctest" ]] && ! pgrep -x xcodebuild >/dev/null 2>&1 && ! pgrep -x Xcode >/dev/null 2>&1; then
+        find "$xctest" -mindepth 1 -maxdepth 1 2>/dev/null
+    fi
+    return 0
+}
+
+# Pastas de versoes antigas de IDEs em $1 cujo nome casa com a regex $2
+# (ex.: AndroidStudio2024.1, IntelliJIdea2024.3). Mantem a mais nova de cada
+# produto/canal (AndroidStudio e AndroidStudioPreview contam separado).
+_old_ide_version_dirs() {
+    local base="$1" pattern="$2"
+    [[ -d "$base" ]] || return 0
+    ls -1 "$base" 2>/dev/null | grep -E "$pattern" \
+        | awk '{
+              ch = $0; sub(/[0-9.]+$/, "", ch)
+              n = split(substr($0, length(ch) + 1), p, ".")
+              k = ""; for (i = 1; i <= 4; i++) k = k sprintf("%06d", p[i] + 0)
+              print ch "|" k "|" $0
+          }' \
+        | sort -t'|' -k1,1 -k2,2r \
+        | awk -F'|' -v base="$base" '$1 == last { print base "/" $3 } { last = $1 }'
+}
+
+# Android Studio e JetBrains: cache do SDK manager, snapshots de boot rapido
+# dos AVDs (o emulador continua, so o proximo boot e "frio") e pastas de
+# versoes antigas dos IDEs (config, cache, logs).
+_android_extras_targets() {
+    local h; h="$(get_user_home)"
+    local d
+    for d in "$h/.android/cache" "$h/.android/build-cache"; do
+        [[ -d "$d" ]] && echo "$d"
+    done
+
+    # Com emulador rodando o snapshot esta em uso: pula.
+    if ! pgrep -f 'qemu-system' >/dev/null 2>&1; then
+        for d in "$h/.android/avd"/*.avd/snapshots; do
+            [[ -d "$d" ]] && echo "$d"
+        done
+    fi
+
+    local base
+    for base in "$h/Library/Application Support/Google" "$h/Library/Caches/Google" "$h/Library/Logs/Google"; do
+        _old_ide_version_dirs "$base" '^AndroidStudio[A-Za-z]*[0-9]+(\.[0-9]+)*$'
+    done
+    for base in "$h/Library/Application Support/JetBrains" "$h/Library/Caches/JetBrains" "$h/Library/Logs/JetBrains"; do
+        _old_ide_version_dirs "$base" '^[A-Za-z]+[0-9]{4}\.[0-9]+$'
+    done
+    return 0
+}
+
+# Pastas Cache/Code Cache/GPUCache/... de apps Chromium e Electron (Chrome,
+# Brave, Slack, Discord, Notion, Claude...). So entra se a pasta-mae tiver
+# "Local State" ou "Preferences", assinatura de perfil Chromium/Electron.
+_electron_cache_targets() {
+    local base="$(get_user_home)/Library/Application Support"
+    [[ -d "$base" ]] || return 0
+    local d parent
+    while IFS= read -r d; do
+        parent="${d%/*}"
+        [[ -f "$parent/Local State" || -f "$parent/Preferences" ]] && echo "$d"
+    done < <(find "$base" -mindepth 2 -maxdepth 4 -type d \( -name 'Cache' -o -name 'Code Cache' \
+        -o -name 'GPUCache' -o -name 'DawnCache' -o -name 'DawnGraphiteCache' -o -name 'DawnWebGPUCache' \
+        -o -name 'GrShaderCache' -o -name 'ShaderCache' \) -prune 2>/dev/null)
+    return 0
+}
+
+# Decodifica %XX de uma URI file:// (workspace.json do VS Code/Cursor).
+_uri_decode() {
+    local s="${1//+/ }"
+    printf '%b' "${s//%/\\x}"
+}
+
+# Editores baseados em VS Code: CachedData (exceto a versao atual),
+# CachedExtensionVSIXs, logs de sessao com mais de 3 dias e workspaceStorage
+# de projetos cuja pasta nao existe mais (discos externos em /Volumes ficam).
+_editor_cache_targets() {
+    local as="$(get_user_home)/Library/Application Support"
+    local app root d ws uri target
+    for app in "Code" "Code - Insiders" "Cursor" "Windsurf" "VSCodium" "Kiro" "Trae"; do
+        root="$as/$app"
+        [[ -d "$root" ]] || continue
+
+        if [[ -d "$root/CachedData" ]]; then
+            ls -1dt "$root/CachedData"/*/ 2>/dev/null | sed '1d; s:/$::'
+        fi
+        [[ -d "$root/CachedExtensionVSIXs" ]] && echo "$root/CachedExtensionVSIXs"
+        [[ -d "$root/logs" ]] && find "$root/logs" -mindepth 1 -maxdepth 1 -type d -mtime +3 2>/dev/null
+
+        [[ -d "$root/User/workspaceStorage" ]] || continue
+        for ws in "$root/User/workspaceStorage"/*/; do
+            ws="${ws%/}"
+            [[ -f "$ws/workspace.json" ]] || continue
+            uri=$(sed -nE 's/.*"(folder|workspace)"[[:space:]]*:[[:space:]]*"(file:\/\/[^"]*)".*/\2/p' "$ws/workspace.json" 2>/dev/null | head -1)
+            [[ -n "$uri" ]] || continue
+            target=$(_uri_decode "${uri#file://}")
+            [[ "$target" == /Volumes/* ]] && continue
+            [[ -e "$target" ]] || echo "$ws"
+        done
+    done
+    return 0
+}
+
+# Caches de ferramentas fora de ~/Library/Caches. Todos sao baixados/gerados
+# de novo sob demanda. repos privados do CocoaPods e modelos (huggingface,
+# ollama) ficam de fora de proposito.
+_misc_dev_cache_targets() {
+    local h; h="$(get_user_home)"
+    local d
+    for d in \
+        "$h/.yarn/berry/cache" \
+        "$h/.cache/node/corepack" \
+        "$h/.cache/puppeteer" \
+        "$h/.cache/prisma" \
+        "$h/.cache/firebase/emulators" \
+        "$h/.cache/uv" \
+        "$h/.cache/pre-commit" \
+        "$h/.cache/node-gyp" \
+        "$h/.cache/mesa_shader_cache" \
+        "$h/.cache/composer" \
+        "$h/.composer/cache" \
+        "$h/.node-gyp" \
+        "$h/.electron-gyp" \
+        "$h/.cargo/registry/src" \
+        "$h/.cargo/git/checkouts" \
+        "$h/.cocoapods/repos/trunk"; do
+        [[ -d "$d" ]] && echo "$d"
+    done
+    return 0
+}
+
+# Arquivos .ipsw baixados pelo Finder/iTunes para atualizar/restaurar aparelhos.
+_ios_firmware_targets() {
+    local h; h="$(get_user_home)"
+    local d
+    for d in "$h/Library/iTunes/iPhone Software Updates" "$h/Library/iTunes/iPad Software Updates" "$h/Library/iTunes/iPod Software Updates"; do
+        [[ -d "$d" ]] && find "$d" -mindepth 1 -maxdepth 1 2>/dev/null
+    done
+    return 0
+}
+
+# Caches de apps sandboxed (App Store): ~/Library/Caches nao alcanca essas
+# pastas. Apps da Apple ficam de fora, e o WhatsApp tambem: ele guarda midia
+# das conversas (ChatMedia) em Caches. Apaga o conteudo, nao a pasta Caches.
+_container_cache_targets() {
+    local h; h="$(get_user_home)"
+    local c
+    for c in "$h/Library/Containers"/*/Data/Library/Caches "$h/Library/Group Containers"/*/Library/Caches; do
+        [[ -d "$c" && ! -L "$c" ]] || continue
+        [[ "$c" == *com.apple.* || "$c" == *net.whatsapp.* || "$c" == *group.net.whatsapp* ]] && continue
+        find "$c" -mindepth 1 -maxdepth 1 2>/dev/null
+    done
+    return 0
+}
+
+# Dias sem nenhum arquivo modificado para um projeto ser considerado parado.
+STALE_PROJECT_DAYS="${STALE_PROJECT_DAYS:-30}"
+
+# Raiz do projeto dono de $1: primeiro ancestral com marcador de projeto.
+_project_root_of() {
+    local d="${1%/*}" stop="$2"
+    while [[ -n "$d" && "$d" != "$stop" && "$d" != "/" ]]; do
+        if [[ -e "$d/.git" || -f "$d/package.json" || -f "$d/pyproject.toml" || -f "$d/requirements.txt" \
+            || -f "$d/settings.gradle" || -f "$d/settings.gradle.kts" || -f "$d/pubspec.yaml" || -f "$d/Cargo.toml" ]]; then
+            echo "$d"
+            return 0
+        fi
+        d="${d%/*}"
+    done
+    echo "${1%/*}"
+}
+
+# 0 se o projeto teve algum arquivo (fora das pastas geradas) alterado recentemente.
+_project_is_active() {
+    [[ -n "$(find "$1" \( -name node_modules -o -name Pods -o -name .git -o -name build -o -name dist \
+        -o -name .venv -o -name __pycache__ -o -name .gradle -o -name .cxx -o -name .dart_tool \
+        -o -name .nx -o -name .angular -o -name .svelte-kit -o -name DerivedData -o -name .idea \) -prune \
+        -o -type f ! -name .DS_Store -mtime -"$STALE_PROJECT_DAYS" -print 2>/dev/null | head -1)" ]]
+}
+
+# Pastas regeneraveis de projetos parados ha mais de STALE_PROJECT_DAYS dias:
+# Pods, .venv, .gradle, .cxx, .dart_tool, .nx, .angular, .svelte-kit e caches Python.
+_stale_project_targets() {
+    local base d root verdicts="" state
+    while IFS= read -r base; do
+        while IFS= read -r d; do
+            [[ -z "$d" ]] && continue
+            case "${d##*/}" in
+                Pods)    [[ -f "${d%/*}/Podfile" ]] || continue ;;
+                .venv|venv) [[ -f "$d/pyvenv.cfg" ]] || continue ;;
+                .gradle) [[ -f "${d%/*}/settings.gradle" || -f "${d%/*}/settings.gradle.kts" || -f "${d%/*}/gradlew" ]] || continue ;;
+            esac
+            root=$(_project_root_of "$d" "$base")
+            state=$(printf '%s' "$verdicts" | grep -F "${root}|" | head -1)
+            if [[ -z "$state" ]]; then
+                if _project_is_active "$root"; then state="${root}|active"; else state="${root}|stale"; fi
+                verdicts="${verdicts}${state}"$'\n'
+            fi
+            [[ "$state" == *"|stale" ]] && echo "$d"
+        done < <(find "$base" \( -name node_modules -o -name .git \) -prune -o -type d \( -name Pods -o -name .venv \
+            -o -name venv -o -name .gradle -o -name .cxx -o -name .dart_tool -o -name .nx -o -name .angular \
+            -o -name .svelte-kit -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) \
+            -maxdepth 6 -prune -print 2>/dev/null)
+    done < <(_project_search_paths)
+    return 0
+}
+
+# Versoes fixadas em .nvmrc/.node-version/.python-version/.ruby-version/
+# .tool-versions/mise.toml dos projetos e as globais. Imprime "tool versao".
+_runtime_version_specs() {
+    local h; h="$(get_user_home)"
+    {
+        local base
+        while IFS= read -r base; do
+            find "$base" \( -name node_modules -o -name .git \) -prune -o -maxdepth 6 -type f \( -name .nvmrc \
+                -o -name .node-version -o -name .python-version -o -name .ruby-version -o -name .tool-versions \
+                -o -name mise.toml -o -name .mise.toml \) -print 2>/dev/null
+        done < <(_project_search_paths)
+        local f
+        for f in "$h/.nvmrc" "$h/.node-version" "$h/.python-version" "$h/.ruby-version" "$h/.tool-versions" \
+            "$h/.config/mise/config.toml" "$h/.pyenv/version" "$h/.rbenv/version" "$h/.nvm/alias/default"; do
+            [[ -f "$f" ]] && echo "$f"
+        done
+    } | while IFS= read -r f; do
+        case "$f" in
+            */.nvmrc|*/.node-version|*/.nvm/alias/default) awk 'NF { print "node " $1; exit }' "$f" ;;
+            */.python-version|*/.pyenv/version)            awk 'NF { print "python " $1 }' "$f" ;;
+            */.ruby-version|*/.rbenv/version)              awk 'NF { print "ruby " $1; exit }' "$f" ;;
+            */.tool-versions)
+                awk '$1 == "nodejs" || $1 == "node" { for (i = 2; i <= NF; i++) print "node " $i }
+                     $1 == "python" { for (i = 2; i <= NF; i++) print "python " $i }
+                     $1 == "ruby"   { for (i = 2; i <= NF; i++) print "ruby " $i }' "$f" ;;
+            *.toml)
+                sed -nE 's/^[[:space:]]*(node|python|ruby)[[:space:]]*=[[:space:]]*(.*)$/\1 \2/p' "$f" \
+                    | while read -r tool rest; do
+                          printf '%s\n' "$rest" | grep -oE '[0-9]+(\.[0-9]+)*' | sed "s/^/$tool /"
+                      done ;;
+        esac
+    done | sed -E 's/ (v|ruby-|python-|node-)/ /' | awk '$2 ~ /^[0-9]/' | sort -u
+}
+
+# Pastas de versao instaladas por nvm/fnm/volta/mise/asdf/pyenv/rbenv/chruby.
+# Imprime "tool|pasta-mae" (uma linha por gerenciador).
+_runtime_version_parents() {
+    local h; h="$(get_user_home)"
+    local p
+    for p in "$h/.nvm/versions/node" "$h/Library/Application Support/fnm/node-versions" "$h/.local/share/fnm/node-versions" \
+        "$h/.volta/tools/image/node" "$h/.local/share/mise/installs/node" "$h/.asdf/installs/nodejs"; do
+        [[ -d "$p" ]] && echo "node|$p"
+    done
+    for p in "$h/.pyenv/versions" "$h/.local/share/mise/installs/python" "$h/.asdf/installs/python"; do
+        [[ -d "$p" ]] && echo "python|$p"
+    done
+    for p in "$h/.rbenv/versions" "$h/.rubies" "$h/.local/share/mise/installs/ruby" "$h/.asdf/installs/ruby"; do
+        [[ -d "$p" ]] && echo "ruby|$p"
+    done
+    return 0
+}
+
+# Versoes antigas de Node/Python/Ruby. Em cada gerenciador ficam: a mais nova,
+# a mais nova que atende cada versao fixada nos projetos/globais e as que tem
+# processo rodando. Virtualenvs do pyenv (nomes nao numericos) nunca entram.
+_runtime_old_version_targets() {
+    local specs ps_args
+    specs=$(_runtime_version_specs)
+    ps_args=$(ps -axo args= 2>/dev/null)
+    local tool parent
+    while IFS='|' read -r tool parent; do
+        local versions name norm
+        versions=$(for name in $(ls -1 "$parent" 2>/dev/null); do
+            [[ -d "$parent/$name" && ! -L "$parent/$name" ]] || continue
+            norm=$(printf '%s' "$name" | sed -E 's/^(v|ruby-|python-|node-)//')
+            [[ "$norm" =~ ^[0-9]+\.[0-9]+ ]] || continue
+            echo "$norm|$name"
+        done | _sort_versions)
+        [[ -z "$versions" ]] && continue
+
+        local keep spec
+        keep=$(printf '%s\n' "$versions" | tail -1 | cut -d'|' -f2)
+        for spec in $(printf '%s\n' "$specs" | awk -v t="$tool" '$1 == t { print $2 }'); do
+            keep="$keep"$'\n'$(printf '%s\n' "$versions" \
+                | awk -F'|' -v s="$spec" '$1 == s || index($1, s ".") == 1 { m = $2 } END { print m }')
+        done
+
+        while IFS='|' read -r norm name; do
+            [[ -z "$name" ]] && continue
+            printf '%s\n' "$keep" | grep -qxF "$name" && continue
+            [[ "$ps_args" == *"$parent/$name/"* ]] && continue
+            echo "$parent/$name"
+        done <<< "$versions"
+    done < <(_runtime_version_parents)
+    return 0
+}
+
+# Xcodes extras em /Applications: fica o selecionado (xcode-select), o de
+# versao mais nova e os que estao abertos.
+_xcode_old_app_targets() {
+    local selected; selected=$(xcode-select -p 2>/dev/null)
+    selected="${selected%%.app/*}.app"
+    local ps_args; ps_args=$(ps -axo args= 2>/dev/null)
+    local app ver list=""
+    for app in /Applications/Xcode*.app; do
+        [[ -d "$app" && ! -L "$app" ]] || continue
+        ver=""
+        [[ -f "$app/Contents/version.plist" ]] && ver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/version.plist" 2>/dev/null)
+        [[ "$ver" =~ ^[0-9] ]] || ver="0"
+        list="${list}${ver}|${app}"$'\n'
+    done
+    [[ -z "$list" ]] && return 0
+    local newest; newest=$(printf '%s' "$list" | _sort_versions | tail -1 | cut -d'|' -f2-)
+    while IFS='|' read -r ver app; do
+        [[ -z "$app" || "$app" == "$newest" || "$app" == "$selected" ]] && continue
+        [[ "$ps_args" == *"$app/"* ]] && continue
+        echo "$app"
+    done <<< "$list"
+    return 0
+}
+
+# Caches e logs do sistema (exigem sudo): /Library/Caches (menos com.apple.*),
+# crash reports de todos os usuarios/daemons e logs rotacionados compactados.
+_system_cache_targets() {
+    local d
+    for d in /Library/Caches/*; do
+        [[ -e "$d" ]] || continue
+        [[ "${d##*/}" == com.apple.* ]] && continue
+        echo "$d"
+    done
+    [[ -d /Library/Logs/DiagnosticReports ]] && find /Library/Logs/DiagnosticReports -mindepth 1 -maxdepth 1 2>/dev/null
+    find /private/var/log -type f \( -name '*.gz' -o -name '*.bz2' \) 2>/dev/null
+    return 0
+}
+
+# Instaladores (.dmg, .pkg, .xip, .iso) em ~/Downloads com mais de 30 dias.
+_downloads_installer_targets() {
+    local dl="$(get_user_home)/Downloads"
+    [[ -d "$dl" ]] || return 0
+    find "$dl" -mindepth 1 -maxdepth 1 -type f \( -iname '*.dmg' -o -iname '*.pkg' -o -iname '*.xip' -o -iname '*.iso' \) \
+        -mtime +30 2>/dev/null
+    return 0
+}
+
+# Datas dos snapshots locais do Time Machine no disco de boot.
+list_tm_local_snapshots() {
+    command -v tmutil >/dev/null 2>&1 || return 0
+    tmutil listlocalsnapshotdates / 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}$'
+    return 0
+}
+
+# Limpeza do /tmp no macOS: /tmp e um link para /private/tmp e o handler
+# generico nao o atravessa. Apaga so arquivos do usuario com mais de 1 dia.
+_delete_macos_temp() {
+    local min_age="${1:-0}"
+    [[ $min_age -lt 1 ]] && min_age=1
+    local uid; uid=$(id -u)
+    local deleted=0 failed=0 f
+    while IFS= read -r -d '' f; do
+        if rm -f "$f" 2>/dev/null; then deleted=$((deleted + 1)); else failed=$((failed + 1)); fi
+    done < <(find /private/tmp -type f -user "$uid" -mtime +$((min_age - 1)) \
+        ! -name '*.lock' ! -name '*.pid' ! -name '*.sock' -print0 2>/dev/null)
+    log_success "Removed $deleted files from /private/tmp ($failed could not be removed)"
+    return 0
+}
+
+# Le "ndkVersion"/"buildToolsVersion" dos projetos locais.
+_android_versions_in_projects() {
+    local key="$1" base
+    while IFS= read -r base; do
+        find "$base" \( -name node_modules -o -name .git -o -name build \) -prune -o -maxdepth 7 \
+            \( -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradle.properties' -o -name 'libs.versions.toml' \) \
+            -print 2>/dev/null
+    done < <(_project_search_paths) | tr '\n' '\0' | xargs -0 grep -hoE "${key}[^0-9]{0,8}[0-9]+(\.[0-9]+)+" 2>/dev/null \
+        | grep -oE '[0-9]+(\.[0-9]+)+$' | sort -u
+}
+
+# Android SDK: system images que nenhum AVD usa (a de maior API sempre fica),
+# NDKs antigos (fica o mais novo e os fixados em ndkVersion) e build-tools
+# antigos (ficam as 2 mais novas e as fixadas em buildToolsVersion).
+_android_sdk_unused_targets() {
+    local sdk
+    sdk=$(get_android_sdk_root 2>/dev/null) || return 0
+    local h; h="$(get_user_home)"
+
+    if [[ -d "$sdk/system-images" ]]; then
+        local used newest_api img rel
+        used=$(cat "$h/.android/avd"/*.avd/config.ini 2>/dev/null \
+            | sed -nE 's:^image\.sysdir\.1[[:space:]]*=[[:space:]]*(.*[^/])/?[[:space:]]*$:\1:p')
+        newest_api=$(ls -1 "$sdk/system-images" 2>/dev/null | sed -nE 's/^android-([0-9]+)$/\1/p' | sort -n | tail -1)
+        while IFS= read -r img; do
+            rel="${img#"$sdk"/}"
+            printf '%s\n' "$used" | grep -qxF "$rel" && continue
+            [[ -n "$newest_api" && "$rel" == "system-images/android-${newest_api}/"* ]] && continue
+            echo "$img"
+        done < <(find "$sdk/system-images" -mindepth 3 -maxdepth 3 -type d 2>/dev/null)
+    fi
+
+    if [[ -d "$sdk/ndk" ]]; then
+        local keep_ndk newest_ndk v
+        keep_ndk=$(_android_versions_in_projects ndkVersion)
+        newest_ndk=$(ls -1 "$sdk/ndk" 2>/dev/null | _sort_versions | tail -1)
+        for v in $(ls -1 "$sdk/ndk" 2>/dev/null); do
+            [[ "$v" == "$newest_ndk" ]] && continue
+            printf '%s\n' "$keep_ndk" | grep -qxF "$v" && continue
+            echo "$sdk/ndk/$v"
+        done
+    fi
+
+    if [[ -d "$sdk/build-tools" ]]; then
+        local keep_bt v
+        keep_bt=$(_android_versions_in_projects buildToolsVersion)
+        for v in $(ls -1 "$sdk/build-tools" 2>/dev/null | _sort_versions | sed '$d' | sed '$d'); do
+            printf '%s\n' "$keep_bt" | grep -qxF "$v" && continue
+            echo "$sdk/build-tools/$v"
+        done
+    fi
+    return 0
+}
+
+# Xcode Archives: mantem o archive mais recente de cada app e qualquer um
+# com menos de 90 dias. Archives guardam os dSYMs usados para simbolizar
+# crashes de versoes publicadas.
+_xcode_archives_old_targets() {
+    local base="$(get_user_home)/Library/Developer/Xcode/Archives"
+    [[ -d "$base" ]] || return 0
+    local seen="" a name
+    while IFS= read -r a; do
+        a="${a%/}"
+        [[ -d "$a" ]] || continue
+        name=""
+        [[ -f "$a/Info.plist" ]] && name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$a/Info.plist" 2>/dev/null)
+        [[ -z "$name" ]] && name="${a##*/}" && name="${name%% [0-9]*}"
+        if printf '%s' "$seen" | grep -qxF "$name"; then
+            [[ -n "$(find "$a" -maxdepth 0 -mtime +90 2>/dev/null)" ]] && echo "$a"
+        else
+            seen="${seen}${name}"$'\n'
+        fi
+    done < <(ls -1dt "$base"/*/*.xcarchive 2>/dev/null)
+    return 0
+}
+
+list_extra_category_targets() {
+    is_macos || return 0
+    case "$1" in
+        gradle_old_versions) _gradle_old_targets ;;
+        tmp_old)             _tmp_old_targets ;;
+        xcode_extras)        _xcode_extras_targets ;;
+        android_extras)      _android_extras_targets ;;
+        electron_caches)     _electron_cache_targets ;;
+        editor_caches)       _editor_cache_targets ;;
+        misc_dev_caches)     _misc_dev_cache_targets ;;
+        ios_firmware)        _ios_firmware_targets ;;
+        android_sdk_unused)  _android_sdk_unused_targets ;;
+        xcode_archives_old)  _xcode_archives_old_targets ;;
+        container_caches)    _container_cache_targets ;;
+        stale_project_deps)  _stale_project_targets ;;
+        runtime_old_versions) _runtime_old_version_targets ;;
+        xcode_old_apps)      _xcode_old_app_targets ;;
+        system_caches)       _system_cache_targets ;;
+        downloads_installers) _downloads_installer_targets ;;
+    esac
+}
+
+# Bytes que uma categoria extra liberaria.
+extra_category_bytes() {
+    local bytes
+    bytes=$(list_extra_category_targets "$1" | _paths_bytes)
+    [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+    echo "$bytes"
+}
+
+# Apaga os alvos de uma categoria extra. Respeita whitelist item a item.
+_delete_extra_category() {
+    local category="$1"
+    local label; label=$(_extra_category_label "$category")
+
+    if ! is_macos; then
+        log_info "$label: disponivel apenas no macOS"
+        return 0
+    fi
+
+    if [[ "$category" == "homebrew_autoremove" ]]; then
+        if ! command -v brew >/dev/null 2>&1; then
+            log_info "Homebrew nao encontrado"
+            return 0
+        fi
+        if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+            print_warning "About to run: brew autoremove (remove dependencias que nenhuma formula usa)"
+            if ! confirm "Run brew autoremove? (y/N)" "N"; then return 1; fi
+        fi
+        if brew autoremove 2>&1; then
+            log_success "brew autoremove concluido"
+        else
+            log_warn "brew autoremove falhou"
+        fi
+        return 0
+    fi
+
+    if [[ "$category" == "tm_snapshots" ]]; then
+        local snaps snap n=0
+        snaps=$(list_tm_local_snapshots)
+        if [[ -z "$snaps" ]]; then
+            log_info "Nenhum snapshot local do Time Machine"
+            return 0
+        fi
+        if ! sudo -v; then
+            log_warn "sudo negado — snapshots do Time Machine mantidos"
+            return 1
+        fi
+        for snap in $snaps; do
+            sudo tmutil deletelocalsnapshots "$snap" >/dev/null 2>&1 && n=$((n + 1)) || log_warn "Falha ao apagar snapshot $snap"
+        done
+        log_success "$label: $n snapshot(s) removido(s)"
+        [[ "$QUIET" != "true" ]] && echo "  ✓ $label: $n snapshot(s) removido(s)" >&2
+        return 0
+    fi
+
+    # Categorias fora do HOME: tenta sem sudo e usa sudo so no que falhar.
+    local use_sudo=false
+    [[ "$category" == "system_caches" || "$category" == "xcode_old_apps" ]] && use_sudo=true
+
+    local targets=() t
+    while IFS= read -r t; do
+        [[ -z "$t" || ! -e "$t" ]] && continue
+        if command -v should_skip_path >/dev/null 2>&1 && should_skip_path "$t"; then
+            log_info "Skipping whitelisted/protected path: $t"
+            continue
+        fi
+        targets+=("$t")
+    done < <(list_extra_category_targets "$category")
+
+    if [[ "$category" == "xcode_extras" ]] && command -v xcrun >/dev/null 2>&1; then
+        # Simuladores de runtimes que nao existem mais: inuteis e invisiveis no Xcode.
+        xcrun simctl delete unavailable >/dev/null 2>&1 && log_info "Simuladores indisponiveis removidos"
+    fi
+
+    if [[ ${#targets[@]} -eq 0 ]]; then
+        log_info "$label: nada a remover"
+        return 0
+    fi
+
+    local total_size size_formatted
+    total_size=$(printf '%s\n' "${targets[@]}" | _paths_bytes)
+    [[ "$total_size" =~ ^[0-9]+$ ]] || total_size=0
+    size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
+
+    if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
+        print_warning "About to delete ${#targets[@]} item(s) — $label ($size_formatted)"
+        local shown=0
+        for t in "${targets[@]}"; do
+            [[ $shown -ge 15 ]] && { print_info "  ... e mais $(( ${#targets[@]} - shown ))"; break; }
+            print_info "  - ${t/#$(get_user_home)/~}"
+            shown=$((shown + 1))
+        done
+        if ! confirm "Delete? (y/N)" "N"; then
+            log_info "User cancelled $category"
+            return 1
+        fi
+    else
+        log_info "Deleting ${#targets[@]} item(s) — $label ($size_formatted)"
+    fi
+
+    if [[ "$use_sudo" == "true" ]] && ! sudo -n true 2>/dev/null; then
+        if ! sudo -v; then
+            log_warn "sudo negado — $label mantido"
+            return 1
+        fi
+    fi
+
+    local deleted=0 failed=0
+    for t in "${targets[@]}"; do
+        if rm -rf "$t" 2>/dev/null || { [[ "$use_sudo" == "true" ]] && sudo rm -rf "$t" 2>/dev/null; }; then
+            deleted=$((deleted + 1))
+            log_debug "Deleted: $t"
+        else
+            failed=$((failed + 1))
+            log_warn "Could not remove: $t"
+        fi
+    done
+
+    if [[ "$category" == "xcode_archives_old" ]]; then
+        find "$(get_user_home)/Library/Developer/Xcode/Archives" -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null
+    fi
+
+    log_success "$label: $deleted removido(s), $failed falha(s) ($size_formatted)"
+    if [[ "$QUIET" != "true" ]]; then
+        echo "  ✓ $label: $deleted item(s) removido(s) ($size_formatted)" >&2
+    fi
+    return 0
+}
+
 # ============ Cleanup Category Functions ============
 
 get_cleanup_categories() {
@@ -322,7 +1083,7 @@ get_cleanup_categories() {
     #   android_studio_app, android_library, android_application_support, gradle_full
     # xcode (DerivedData) e xcode_device_support entram porque sao regenerados
     # sozinhos; ios_simulator_runtimes preserva a runtime mais nova e as em uso.
-    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support"
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support gradle_old_versions tmp_old xcode_extras android_extras electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
 
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
@@ -653,6 +1414,15 @@ scan_cleanup_category() {
     local min_age_days="${2:-0}"
     local path=""
 
+    if is_extra_cleanup_category "$category"; then
+        local extra_count extra_bytes
+        extra_count=$(list_extra_category_targets "$category" | grep -c .)
+        extra_bytes=$(extra_category_bytes "$category")
+        [[ $extra_count -eq 0 ]] && extra_count=1
+        echo "${category}|$(_extra_category_label "$category")|${extra_count}|${extra_bytes}"
+        return 0
+    fi
+
     # Handle special categories that don't have a single path
     case "$category" in
         react_native)
@@ -666,6 +1436,8 @@ scan_cleanup_category() {
                 "/tmp/metro-*"
                 "/tmp/haste-map-*"
                 "/tmp/react-*"
+                "${TMPDIR:-/tmp}/metro-*"
+                "${TMPDIR:-/tmp}/haste-map-*"
             )
 
             for cache_path in "${cache_paths[@]}"; do
@@ -1588,7 +2360,7 @@ scan_cleanup_category() {
             while IFS= read -r d; do
                 local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
                 [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024)) && file_count=$((file_count + sz * 2))
-            done < <(find /tmp -maxdepth 1 -name "jest-*" -type d 2>/dev/null)
+            done < <(find /tmp/ "${TMPDIR:-/tmp/}" -maxdepth 1 -type d \( -name "jest-*" -o -name "jest_*" \) 2>/dev/null)
             [[ $file_count -eq 0 ]] && file_count=1
             echo "${category}|/tmp/jest-*|${file_count}|${total_size}"
             ;;
@@ -2110,6 +2882,11 @@ delete_category_files() {
         echo "  → Analyzing $category..." >&2
     fi
 
+    if [[ "$category" == "temp" ]] && is_macos; then
+        _delete_macos_temp "$min_age_days"
+        return $?
+    fi
+
     # Handle special categories
     case "$category" in
         react_native)
@@ -2122,6 +2899,8 @@ delete_category_files() {
                 "/tmp/metro-*"
                 "/tmp/haste-map-*"
                 "/tmp/react-*"
+                "${TMPDIR:-/tmp}/metro-*"
+                "${TMPDIR:-/tmp}/haste-map-*"
             )
 
             # Calculate total size for confirmation
@@ -5255,7 +6034,7 @@ delete_category_files() {
             while IFS= read -r d; do
                 dirs_to_delete+=("$d")
                 local sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}'); [[ "$sz" =~ ^[0-9]+$ ]] && total_size=$((total_size + sz * 1024))
-            done < <(find /tmp -maxdepth 1 -name "jest-*" -type d 2>/dev/null)
+            done < <(find /tmp/ "${TMPDIR:-/tmp/}" -maxdepth 1 -type d \( -name "jest-*" -o -name "jest_*" \) 2>/dev/null)
             if [[ ${#dirs_to_delete[@]} -eq 0 ]]; then log_info "No Jest cache found"; return 0; fi
             local size_formatted; size_formatted=$(awk -v b="$total_size" 'BEGIN { if(b>=1073741824) printf "%.2f GB\n",b/1073741824; else printf "%.2f MB\n",b/1048576 }')
             if [[ "$SKIP_CATEGORY_CONFIRM" != "true" ]]; then
@@ -5602,6 +6381,14 @@ delete_category_files() {
             fi
             return 0
             ;;
+
+        gradle_old_versions|tmp_old|xcode_extras|android_extras|electron_caches|editor_caches|\
+        misc_dev_caches|ios_firmware|homebrew_autoremove|android_sdk_unused|xcode_archives_old|\
+        container_caches|stale_project_deps|runtime_old_versions|xcode_old_apps|tm_snapshots|\
+        system_caches|downloads_installers)
+            _delete_extra_category "$category"
+            return $?
+            ;;
     esac
 
     local path=""
@@ -5891,3 +6678,6 @@ export -f show_cleanup_preview
 export -f is_dev_file
 export -f cleanup_files_interactive
 export -f delete_category_files
+export -f is_extra_cleanup_category
+export -f list_extra_category_targets
+export -f extra_category_bytes
