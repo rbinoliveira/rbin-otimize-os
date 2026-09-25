@@ -45,11 +45,21 @@ if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
     C_DIM=$(tput dim 2>/dev/null || echo '')
     C_WHITE=$(tput setaf 7)
 else
-    C_RESET='\033[0m'; C_BOLD='\033[1m'; C_DIM='\033[2m'
-    C_GREEN='\033[0;32m'; C_YELLOW='\033[1;33m'
-    C_RED='\033[0;31m'; C_CYAN='\033[0;36m'; C_WHITE='\033[0;37m'
-    C_BLUE='\033[0;34m'
+    # No terminal: no colors (literal escape strings would print as text)
+    C_RESET=''; C_BOLD=''; C_DIM=''
+    C_GREEN=''; C_YELLOW=''
+    C_RED=''; C_CYAN=''; C_WHITE=''
+    C_BLUE=''
 fi
+
+# Le uma tecla do terminal; sem terminal (CI, pipe) devolve vazio = resposta padrao
+_read_key() {
+    local __var="$1" __prompt="$2" __key=""
+    if { : </dev/tty; } 2>/dev/null; then
+        read -r -n 1 -p "$__prompt" __key </dev/tty || __key=""
+    fi
+    printf -v "$__var" '%s' "$__key"
+}
 
 # ============ Logging ============
 init_logging() {
@@ -152,7 +162,7 @@ _ask() {
     local hint="y/N"
     [[ "$default" == "y" ]] && hint="Y/n"
     local resp
-    read -r -n 1 -p "$(echo -e "${C_YELLOW}  ${prompt} [${hint}]: ${C_RESET}")" resp </dev/tty
+    _read_key resp "$(echo -e "${C_YELLOW}  ${prompt} [${hint}]: ${C_RESET}")"
     echo ""
     [[ -z "$resp" ]] && resp="$default"
     [[ "$resp" =~ ^[YySs]$ ]]
@@ -623,7 +633,7 @@ run_wizard() {
     fi
 
     local confirm_resp
-    read -r -n 1 -p "$(echo -e "${C_YELLOW}  Confirma a limpeza? [y/N]: ${C_RESET}")" confirm_resp </dev/tty
+    _read_key confirm_resp "$(echo -e "${C_YELLOW}  Confirma a limpeza? [y/N]: ${C_RESET}")"
     echo ""
     if ! [[ "$confirm_resp" =~ ^[SsYy]$ ]]; then
         echo -e "${C_YELLOW}Cancelado.${C_RESET}"
@@ -768,7 +778,7 @@ _show_category_analysis() {
         esac
     }
 
-    printf '\r\033[2K'  # clear spinner line
+    [[ -t 1 ]] && printf '\r\033[2K'  # clear spinner line
     _atop
     _aline "  ${C_BOLD}${C_CYAN}Análise de Disco${C_RESET}  ${C_DIM}$(df -H / 2>/dev/null | awk 'NR==2{printf "%s livre de %s",$4,$2}')${C_RESET}"
     _asep
@@ -844,11 +854,16 @@ main() {
 
     trap 'echo ""; echo "Interrompido."; exit 0' INT TERM
 
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "${C_YELLOW}[dry-run] Modo simulacao: nada sera apagado.${C_RESET}"
+        echo ""
+    fi
+
     _show_category_analysis
 
     echo ""
     local start_resp
-    read -r -n 1 -p "$(echo -e "${C_YELLOW}  Iniciar wizard de limpeza? [y/N]: ${C_RESET}")" start_resp </dev/tty
+    _read_key start_resp "$(echo -e "${C_YELLOW}  Iniciar wizard de limpeza? [y/N]: ${C_RESET}")"
     echo ""
     if ! [[ "$start_resp" =~ ^[SsYy]$ ]]; then
         echo -e "${C_DIM}  Saindo sem limpar.${C_RESET}"

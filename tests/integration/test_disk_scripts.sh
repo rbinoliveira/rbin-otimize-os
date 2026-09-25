@@ -109,14 +109,17 @@ test_analyze_disk_script() {
     fi
 
     # Test --help flag
-    if bash "$script_path" --help 2>&1 | grep -q "Usage:"; then
+    if bash "$script_path" --help 2>&1 | grep -q "Uso:\|Usage:"; then
         test_pass "analyze-disk.sh --help works"
     else
         test_fail "analyze-disk.sh --help" "does not show help"
     fi
 
     # Test --dry-run flag
-    if bash "$script_path" --dry-run --quiet 2>&1 | grep -q "DRY-RUN\|dry-run\|Disk Analysis"; then
+    # Capture first: grep -q closing the pipe early would SIGPIPE the script under pipefail
+    local output
+    output=$(bash "$script_path" --dry-run </dev/null 2>&1) || true
+    if grep -q "Maiores Consumidores de Espa\|Disk Analysis\|dry-run" <<< "$output"; then
         test_pass "analyze-disk.sh --dry-run works"
     else
         test_fail "analyze-disk.sh --dry-run" "does not work correctly"
@@ -150,14 +153,16 @@ test_cleanup_disk_script() {
     fi
 
     # Test --help flag
-    if bash "$script_path" --help 2>&1 | grep -q "Usage:"; then
+    if bash "$script_path" --help 2>&1 | grep -q "Uso:\|Usage:"; then
         test_pass "cleanup-disk.sh --help works"
     else
         test_fail "cleanup-disk.sh --help" "does not show help"
     fi
 
-    # Test --dry-run flag (with force to skip confirmation)
-    if bash "$script_path" --dry-run --force --quiet 2>&1 | grep -q "DRY-RUN\|dry-run\|Disk Cleanup"; then
+    # Test --dry-run flag (no tty: wizard must exit cleanly without deleting)
+    local output
+    output=$(bash "$script_path" --dry-run --force --quiet </dev/null 2>&1) || true
+    if grep -q "\[dry-run\]" <<< "$output"; then
         test_pass "cleanup-disk.sh --dry-run works"
     else
         test_fail "cleanup-disk.sh --dry-run" "does not work correctly"

@@ -7,9 +7,32 @@
 set -euo pipefail
 
 DRY_RUN=false
+
+show_help() {
+    cat <<HELP
+macOS - Maiores Consumidores de Espaco v2.0.0
+
+Uso: $0 [OPCOES]
+
+Lista os diretorios que mais ocupam espaco no HOME e em ~/Library.
+Somente leitura: nada e apagado.
+
+Opcoes:
+    --dry-run, -n    Aceito por compatibilidade (o script ja nao apaga nada)
+    -h, --help       Esta ajuda
+HELP
+}
+
 for arg in "$@"; do
-    case "$arg" in --dry-run|-n) DRY_RUN=true ;; esac
+    case "$arg" in
+        --dry-run|-n) DRY_RUN=true ;;
+        -h|--help)    show_help; exit 0 ;;
+        *) echo "Opcao desconhecida: $arg" >&2; show_help >&2; exit 1 ;;
+    esac
 done
+
+IS_TTY=false
+[[ -t 1 ]] && IS_TTY=true
 
 # ============ Colors ============
 
@@ -20,9 +43,10 @@ if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
     BLUE=$(tput setaf 4); CYAN=$(tput setaf 6); WHITE=$(tput setaf 7)
     TERM_COLS=$(tput cols 2>/dev/null || echo 72)
 else
-    R='\033[0m'; B='\033[1m'; DIM='\033[2m'
-    GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
-    BLUE='\033[0;34m'; CYAN='\033[0;36m'; WHITE='\033[0;37m'
+    # No terminal: no colors (literal escape strings would print as text)
+    R=''; B=''; DIM=''
+    GREEN=''; YELLOW=''; RED=''
+    BLUE=''; CYAN=''; WHITE=''
     TERM_COLS=72
 fi
 
@@ -117,11 +141,12 @@ _SPIN_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 _SPIN_IDX=0
 
 _spin_tick() {
+    [[ "$IS_TTY" == "true" ]] || return 0
     local ch="${_SPIN_CHARS:$_SPIN_IDX:1}"
     printf '\r  %s  %s' "$ch" "$1"
     _SPIN_IDX=$(( (_SPIN_IDX + 1) % 10 ))
 }
-_spin_clear() { printf '\r\033[2K'; }
+_spin_clear() { [[ "$IS_TTY" == "true" ]] && printf '\r\033[2K'; return 0; }
 
 # ============ Scan ============
 
@@ -190,7 +215,7 @@ _display() {
     max_bytes=$(head -1 "$results_file" 2>/dev/null | cut -d'|' -f1)
     [[ -z "$max_bytes" || $max_bytes -eq 0 ]] && max_bytes=1
 
-    clear 2>/dev/null || printf '\033[2J\033[H'
+    [[ "$IS_TTY" == "true" ]] && { clear 2>/dev/null || printf '\033[2J\033[H'; }
 
     _top "$INNER"
     _line "  ${B}${CYAN}Maiores Consumidores de Espaço${R}  ${DIM}macOS $(sw_vers -productVersion 2>/dev/null)${R}" "$INNER"
@@ -234,7 +259,7 @@ _display() {
 # ============ Main ============
 
 main() {
-    printf '\033[2J\033[H'
+    [[ "$IS_TTY" == "true" ]] && printf '\033[2J\033[H'
     _top "$INNER"
     _line "  ${B}${CYAN}Maiores Consumidores de Espaço${R}" "$INNER"
     _sep "$INNER"

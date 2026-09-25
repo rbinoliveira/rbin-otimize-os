@@ -1107,6 +1107,33 @@ get_cleanup_categories() {
     fi
 }
 
+# Pastas de Application Support criadas pelo proprio macOS (daemons e apps
+# do sistema sem .app em /Applications). Apagar isso quebra o sistema.
+_is_macos_system_support_dir() {
+    local name="$1"
+    case "$name" in
+        AddressBook|Animoji|CallHistoryDB|CallHistoryTransactions|CloudDocs|\
+        CrashReporter|DifferentialPrivacy|DiskImages|Dock|FaceTime|FileProvider|\
+        Knowledge|iCloud|icdd|homeenergyd|locationaccessstored|networkserviceproxy|\
+        MobileSync|SyncServices|Mail|Music|TV|Photos|Podcasts|Books|Safari|Notes|\
+        Reminders|Calendars|Messages|Maps|Stocks|News|Shortcuts|Siri|Wallpaper|\
+        Accounts|NotificationCenter|ControlCenter|Spotlight|Preview|Finder|\
+        default.store*|.*)
+            return 0 ;;
+    esac
+    # Tem preferencia com.apple.<nome>: e servico do sistema
+    local lower; lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+    if find "$(get_user_home)/Library/Preferences" -maxdepth 1 -iname "com.apple.${lower}.plist" 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    # Mesmo nome de um binario/framework do sistema (daemon/agent)
+    local bin_dir
+    for bin_dir in /usr/libexec /usr/sbin /System/Library/CoreServices /System/Library/PrivateFrameworks; do
+        [[ -e "${bin_dir}/${name}" || -e "${bin_dir}/${name}.app" || -e "${bin_dir}/${name}.framework" ]] && return 0
+    done
+    return 1
+}
+
 # Find orphaned applications (apps deleted but configs remain)
 find_orphaned_apps() {
     local orphaned_apps=()
@@ -1157,7 +1184,7 @@ find_orphaned_apps() {
             if [[ -n "$app_name" ]]; then
                 installed_app_names+=("$app_name")
             fi
-        done < <(find /Applications -maxdepth 2 -name "*.app" -type d 2>/dev/null)
+        done < <(find /Applications /System/Applications "$(get_user_home)/Applications" -maxdepth 3 -name "*.app" -type d -prune 2>/dev/null)
 
         # Check Application Support directories
         while IFS= read -r app_dir; do
@@ -1172,6 +1199,13 @@ find_orphaned_apps() {
                [[ "$app_name" == "Adobe"* ]]; then
                 continue
             fi
+
+            # Skip macOS services that keep data here without a .app bundle
+            _is_macos_system_support_dir "$app_name" && continue
+
+            # Skip installed CLI tools (zoxide, rtk, gk...) that store data here
+            command -v "$app_name" >/dev/null 2>&1 && continue
+            command -v "$(echo "$app_name" | tr '[:upper:]' '[:lower:]')" >/dev/null 2>&1 && continue
 
             # Check if it's a bundle ID format
             local is_bundle_id=false
@@ -2041,6 +2075,7 @@ scan_cleanup_category() {
                     local bundle_id=$(basename "$container")
                     local app_found=false
                     
+                    [[ "$bundle_id" == com.apple.* ]] && continue
                     if [[ -d "/Applications/${bundle_id}.app" ]]; then
                         continue
                     fi
@@ -3778,22 +3813,19 @@ delete_category_files() {
                     fi
                 fi
 
-                # Delete Preferences files (by bundle ID or app name)
+                # Delete Preferences only on exact bundle ID or "<vendor>.<app>" match, never com.apple.*
                 if [[ -d "$preferences" ]]; then
-                    # Try to find preferences by app name or bundle ID
                     local pref_pattern=""
-                    if [[ "$app_name" =~ ^com\. ]]; then
-                        # It's a bundle ID
-                        pref_pattern="$app_name"
+                    if [[ "$app_name" =~ ^[A-Za-z0-9-]+\.[A-Za-z0-9-]+\. ]]; then
+                        pref_pattern="${app_name}.plist"
                     else
-                        # Try common bundle ID patterns
-                        pref_pattern="*${app_name}*"
+                        pref_pattern="*.${app_name}.plist"
                     fi
 
-                    # Delete matching preference files
                     while IFS= read -r pref_file; do
+                        [[ "$(basename "$pref_file")" == com.apple.* ]] && continue
                         [[ -f "$pref_file" ]] && rm -f "$pref_file" 2>/dev/null && log_debug "Deleted preference: $(basename "$pref_file")"
-                    done < <(find "$preferences" -maxdepth 1 -name "${pref_pattern}.plist" 2>/dev/null)
+                    done < <(find "$preferences" -maxdepth 1 -name "$pref_pattern" 2>/dev/null)
                 fi
             done
 
@@ -4863,6 +4895,7 @@ delete_category_files() {
                 [[ -z "$container" ]] || [[ ! -d "$container" ]] && continue
                 
                 local bundle_id=$(basename "$container")
+                [[ "$bundle_id" == com.apple.* ]] && continue
                 
                 # Check if app still exists
                 local app_found=false
@@ -4878,7 +4911,7 @@ delete_category_files() {
                                 break
                             fi
                         fi
-                    done < <(find /Applications -maxdepth 2 -name "*.app" -type d 2>/dev/null)
+                    done < <(find /Applications /System/Applications "$(get_user_home)/Applications" -maxdepth 3 -name "*.app" -type d -prune 2>/dev/null)
                 fi
                 
                 if [[ "$app_found" == "false" ]]; then
@@ -6670,7 +6703,7 @@ delete_category_files() {
 
 # Export functions
 export -f get_cleanup_categories
-export -f find_orphaned_apps
+export -f _is_macos_system_support_dir find_orphaned_apps
 export -f scan_node_modules
 export -f scan_build_artifacts
 export -f scan_cleanup_category
