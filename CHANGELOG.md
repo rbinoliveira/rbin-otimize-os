@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Limpeza de disco: passos em vermelho agora são só os que atrasam o build local de React Native (Metro/CocoaPods/`~/.rncache`/`~/.expo`, DerivedData, builds nativos, node_modules, deps de projetos parados, snapshots de AVD, cache de boot do simulador, AVDs, simuladores, SDK, runtimes). Esses itens saíram dos passos normais; o resto deixou de ser vermelho.
+
+### Fixed
+
+- `build_artifacts` não entra mais em `node_modules/`, `Pods/`, `android/` e `ios/` (apagava arquivos de `dist/`/`build/` de pacotes e quebrava o bundle do Metro).
+- Passo 1 não apaga mais `~/Library/Caches/{CocoaPods,Metro,com.facebook.ReactNativeBuild}`.
+
 ### Added
 
 - Limpeza de disco (macOS): 7 passos novos no wizard e 2 de alto risco, sem mudar os existentes.

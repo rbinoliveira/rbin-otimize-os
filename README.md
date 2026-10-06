@@ -73,27 +73,24 @@ Ao rodar, abre um menu visual com 3 opções:
 
 ### Wizard de limpeza de disco
 
-A opção [3] guia por passos agrupados por contexto:
+A opção [3] guia primeiro pelos passos normais e depois pelos passos em **vermelho**.
+
+**Regra:** só é vermelho o que atrasa o build local de React Native (emulador/simulador).
+Dando `y` em todos os passos normais, o próximo `run-android`/`run-ios` continua rápido.
 
 | Passo | O que limpa |
 |-------|-------------|
-| 1 | Caches gerais, logs, /tmp, Lixeira |
-| 2 | Caches JS/TS — npm, yarn, pnpm, bun, expo, turbo, Metro |
-| 3 | Build outputs — dist/, build/, .next/, app/build Android, ios/build |
-| 4 | Caches de teste — Jest, Playwright, Cypress |
-| 5 | Caches Python, Ruby, .NET — pip, gem, bundler, NuGet |
-| 6 | Caches iOS/Swift — SwiftPM, Carthage, logs Xcode *(macOS)* |
-| 7 | node_modules dentro dos projetos em ~/dev |
-| 8 | Configs de apps desinstalados, cache VS Code |
-| 9 | Docker volumes não usados |
-| 10 | Homebrew *(macOS)* / Gerenciadores de pacotes *(Linux)* |
-| **A** | **Emuladores Android (AVDs)** — pede `yes` para confirmar |
-| **B** | **Simuladores iOS** — pede `yes` para confirmar *(macOS)* |
-| **C** | **Android SDK Platforms** — pede `yes` para confirmar |
+| 1–22 *(macOS)* / 1–9 *(Linux)* | Caches gerais, npm/yarn/pnpm/bun, build outputs web, testes, Python/Ruby/.NET, Xcode DeviceSupport, Docker, Homebrew, Gradle antigo, temporários, extras de IDE, caches de apps, Archives, runtimes antigos, Xcodes antigos, Time Machine, sistema, Downloads |
+| **A** | **Caches do React Native** — Metro, CocoaPods, `~/.rncache`, `~/.expo` |
+| **B** | **Xcode DerivedData** *(macOS)* |
+| **C** | **Builds nativos** — `android/app/build`, `ios/build` |
+| **D** | **node_modules** dos projetos |
+| **E** | **Dependências de projetos parados** — Pods, .gradle, .cxx… *(macOS)* |
+| **F** | **Snapshots de boot dos AVDs** *(macOS)* |
+| **G** | **Cache de boot dos simuladores iOS** *(macOS)* |
+| **H–L** | **AVDs, simuladores iOS, SDK Platforms, runtimes iOS, componentes do SDK Android** |
 
-Os passos A, B e C têm aviso destacado em vermelho e exigem digitar `yes` explicitamente — nunca são executados por acidente.
-
-**Ambientes Android e iOS não são tocados** nos passos normais (1–10). DerivedData, Gradle cache, AVDs, SDK e simuladores só são removidos se você pedir explicitamente nos passos de alto risco.
+Os passos vermelhos sempre pedem confirmação, mesmo com `--force`. No Linux as letras são A (caches RN), B (builds), C (node_modules), D (AVDs), E (SDK Platforms).
 
 ### Comandos e flags
 

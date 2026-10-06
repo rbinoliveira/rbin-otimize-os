@@ -319,7 +319,7 @@ pick_ios_simulator_dir_to_keep() {
 # list_extra_category_targets. A exclusao, o preview e o painel de analise
 # usam a mesma lista, entao o tamanho mostrado e exatamente o que sera apagado.
 
-EXTRA_CLEANUP_CATEGORIES="gradle_old_versions tmp_old xcode_extras android_extras electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
+EXTRA_CLEANUP_CATEGORIES="gradle_old_versions tmp_old xcode_extras android_extras android_avd_snapshots ios_sim_caches electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
 
 is_extra_cleanup_category() {
     [[ " $EXTRA_CLEANUP_CATEGORIES " == *" $1 "* ]]
@@ -331,6 +331,8 @@ _extra_category_label() {
         tmp_old)             echo "Temporarios antigos" ;;
         xcode_extras)        echo "Xcode: extras" ;;
         android_extras)      echo "Android Studio: extras" ;;
+        android_avd_snapshots) echo "Snapshots de boot dos AVDs" ;;
+        ios_sim_caches)      echo "Cache dyld dos simuladores iOS" ;;
         electron_caches)     echo "Caches de apps Chromium/Electron" ;;
         editor_caches)       echo "Caches de editores (VS Code/Cursor)" ;;
         misc_dev_caches)     echo "Outros caches de dev" ;;
@@ -429,16 +431,15 @@ _gradle_old_targets() {
     return 0
 }
 
-# Temporarios: caches de Jest/Metro no $TMPDIR (sempre regeneraveis) e
+# Temporarios: caches de Jest no $TMPDIR (sempre regeneraveis) e
 # arquivos do usuario com mais de 3 dias em $TMPDIR e /private/tmp.
-# So arquivos regulares: sockets, locks e pids ficam.
+# So arquivos regulares: sockets, locks e pids ficam. Metro fica para react_native.
 _tmp_old_targets() {
     local uid; uid=$(id -u)
     local tmpd="${TMPDIR:-}"
     tmpd="${tmpd%/}"
     if [[ -n "$tmpd" && -d "$tmpd" ]]; then
-        find "$tmpd" -mindepth 1 -maxdepth 1 -type d -user "$uid" \( -name 'jest_*' -o -name 'metro-*' \
-            -o -name 'haste-map-*' -o -name 'react-native-packager-cache-*' \) 2>/dev/null
+        find "$tmpd" -mindepth 1 -maxdepth 1 -type d -user "$uid" -name 'jest_*' 2>/dev/null
     fi
     local d
     for d in "$tmpd" /private/tmp; do
@@ -452,8 +453,7 @@ _tmp_old_targets() {
 }
 
 # Xcode: DeviceSupport de watchOS/tvOS/macOS/visionOS (mantem as N mais novas),
-# logs de device, previews SwiftUI, documentacao e cache dyld dos simuladores.
-# Previews/documentacao so com Xcode fechado; cache dyld so sem simulador ligado.
+# logs de device, previews SwiftUI e documentacao (so com Xcode fechado).
 _xcode_extras_targets() {
     local x="$(get_user_home)/Library/Developer/Xcode"
     local keep="${XCODE_DEVICE_SUPPORT_KEEP:-2}"
@@ -477,11 +477,6 @@ _xcode_extras_targets() {
         for d in "$x/UserData/Previews" "$x/DocumentationCache"; do
             [[ -d "$d" ]] && echo "$d"
         done
-    fi
-
-    local sim_caches="$(get_user_home)/Library/Developer/CoreSimulator/Caches"
-    if [[ -d "$sim_caches" ]] && ! pgrep -x Simulator >/dev/null 2>&1; then
-        find "$sim_caches" -mindepth 1 -maxdepth 1 2>/dev/null
     fi
 
     # Clones de simulador criados para testes paralelos (xcodebuild -parallel-testing).
@@ -509,22 +504,14 @@ _old_ide_version_dirs() {
         | awk -F'|' -v base="$base" '$1 == last { print base "/" $3 } { last = $1 }'
 }
 
-# Android Studio e JetBrains: cache do SDK manager, snapshots de boot rapido
-# dos AVDs (o emulador continua, so o proximo boot e "frio") e pastas de
-# versoes antigas dos IDEs (config, cache, logs).
+# Android Studio e JetBrains: cache do SDK manager e pastas de versoes
+# antigas dos IDEs (config, cache, logs).
 _android_extras_targets() {
     local h; h="$(get_user_home)"
     local d
     for d in "$h/.android/cache" "$h/.android/build-cache"; do
         [[ -d "$d" ]] && echo "$d"
     done
-
-    # Com emulador rodando o snapshot esta em uso: pula.
-    if ! pgrep -f 'qemu-system' >/dev/null 2>&1; then
-        for d in "$h/.android/avd"/*.avd/snapshots; do
-            [[ -d "$d" ]] && echo "$d"
-        done
-    fi
 
     local base
     for base in "$h/Library/Application Support/Google" "$h/Library/Caches/Google" "$h/Library/Logs/Google"; do
@@ -533,6 +520,26 @@ _android_extras_targets() {
     for base in "$h/Library/Application Support/JetBrains" "$h/Library/Caches/JetBrains" "$h/Library/Logs/JetBrains"; do
         _old_ide_version_dirs "$base" '^[A-Za-z]+[0-9]{4}\.[0-9]+$'
     done
+    return 0
+}
+
+# Snapshots de boot rapido dos AVDs: o emulador continua, so o proximo boot e "frio".
+_android_avd_snapshot_targets() {
+    local d
+    # Com emulador rodando o snapshot esta em uso: pula.
+    pgrep -f 'qemu-system' >/dev/null 2>&1 && return 0
+    for d in "$(get_user_home)/.android/avd"/*.avd/snapshots; do
+        [[ -d "$d" ]] && echo "$d"
+    done
+    return 0
+}
+
+# Cache dyld dos simuladores: recriado no proximo boot (que fica bem mais lento).
+_ios_sim_cache_targets() {
+    local sim_caches="$(get_user_home)/Library/Developer/CoreSimulator/Caches"
+    [[ -d "$sim_caches" ]] || return 0
+    pgrep -x Simulator >/dev/null 2>&1 && return 0
+    find "$sim_caches" -mindepth 1 -maxdepth 1 2>/dev/null
     return 0
 }
 
@@ -931,6 +938,8 @@ list_extra_category_targets() {
         tmp_old)             _tmp_old_targets ;;
         xcode_extras)        _xcode_extras_targets ;;
         android_extras)      _android_extras_targets ;;
+        android_avd_snapshots) _android_avd_snapshot_targets ;;
+        ios_sim_caches)      _ios_sim_cache_targets ;;
         electron_caches)     _electron_cache_targets ;;
         editor_caches)       _editor_cache_targets ;;
         misc_dev_caches)     _misc_dev_cache_targets ;;
@@ -1083,7 +1092,7 @@ get_cleanup_categories() {
     #   android_studio_app, android_library, android_application_support, gradle_full
     # xcode (DerivedData) e xcode_device_support entram porque sao regenerados
     # sozinhos; ios_simulator_runtimes preserva a runtime mais nova e as em uso.
-    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support gradle_old_versions tmp_old xcode_extras android_extras electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
+    local base_categories="caches logs temp browser_trash react_native node_modules docker volumes build_artifacts orphaned_apps npm_cache expo_cache vscode_cache nvm_cache yarn_cache pip_cache gem_cache homebrew_cache flutter_cache swiftpm_cache xcode_sim_logs carthage_cache ruby_bundler_cache turborepo_cache jest_cache playwright_cache cypress_cache pnpm_store bun_cache android_project_builds ios_project_builds android_avd android_sdk_old ios_simulator_devices ios_simulator_runtimes xcode xcode_device_support gradle_old_versions tmp_old xcode_extras android_extras android_avd_snapshots ios_sim_caches electron_caches editor_caches misc_dev_caches ios_firmware homebrew_autoremove android_sdk_unused xcode_archives_old container_caches stale_project_deps runtime_old_versions xcode_old_apps tm_snapshots system_caches downloads_installers"
 
     # Add moderate mode categories
     local moderate_categories="application_support_google application_support_cursor application_support_wallpaper containers_cleanup nuget_cache dotnet_cache homebrew_cleanup"
@@ -1424,12 +1433,14 @@ scan_build_artifacts() {
                 # For age filter, limit results severely
                 while IFS= read -r file && [[ ${#files[@]} -lt 1000 ]]; do
                     [[ -n "$file" ]] && files+=("$file")
-                done < <(find "$base_path" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \) -prune -o -maxdepth 5 -type f -path "*/${pattern}/*" -mtime +${min_age_days} -print 2>/dev/null | head -1000)
+                done < <(find "$base_path" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \
+                    -o -name node_modules -o -name Pods -o -name android -o -name ios \) -prune -o -maxdepth 5 -type f -path "*/${pattern}/*" -mtime +${min_age_days} -print 2>/dev/null | head -1000)
             else
                 # For preview, use minimal sampling (first 100 files per pattern)
                 while IFS= read -r file && [[ ${#files[@]} -lt 500 ]]; do
                     [[ -n "$file" ]] && files+=("$file")
-                done < <(find "$base_path" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \) -prune -o -maxdepth 5 -type f -path "*/${pattern}/*" -print 2>/dev/null | head -100)
+                done < <(find "$base_path" \( -name ".git" -o -name ".claude" -o -name ".cursor" -o -name ".task-flow" \
+                    -o -name node_modules -o -name Pods -o -name android -o -name ios \) -prune -o -maxdepth 5 -type f -path "*/${pattern}/*" -print 2>/dev/null | head -100)
             fi
 
             # Break early if we've collected enough samples
@@ -1467,6 +1478,8 @@ scan_cleanup_category() {
                 "$(get_user_home)/.rncache"
                 "$(get_user_home)/Library/Caches/Metro"
                 "$(get_user_home)/Library/Caches/com.facebook.ReactNativeBuild"
+                "$(get_user_home)/Library/Caches/CocoaPods"
+                "${TMPDIR:-/tmp}/react-native-packager-cache-*"
                 "/tmp/metro-*"
                 "/tmp/haste-map-*"
                 "/tmp/react-*"
@@ -2931,6 +2944,8 @@ delete_category_files() {
                 "$(get_user_home)/.rncache"
                 "$(get_user_home)/Library/Caches/Metro"
                 "$(get_user_home)/Library/Caches/com.facebook.ReactNativeBuild"
+                "$(get_user_home)/Library/Caches/CocoaPods"
+                "${TMPDIR:-/tmp}/react-native-packager-cache-*"
                 "/tmp/metro-*"
                 "/tmp/haste-map-*"
                 "/tmp/react-*"
@@ -6415,7 +6430,8 @@ delete_category_files() {
             return 0
             ;;
 
-        gradle_old_versions|tmp_old|xcode_extras|android_extras|electron_caches|editor_caches|\
+        gradle_old_versions|tmp_old|xcode_extras|android_extras|android_avd_snapshots|ios_sim_caches|\
+        electron_caches|editor_caches|\
         misc_dev_caches|ios_firmware|homebrew_autoremove|android_sdk_unused|xcode_archives_old|\
         container_caches|stale_project_deps|runtime_old_versions|xcode_old_apps|tm_snapshots|\
         system_caches|downloads_installers)
@@ -6451,6 +6467,12 @@ delete_category_files() {
         local deleted=0 failed=0
         while IFS= read -r -d '' entry; do
             [[ -z "$entry" ]] && continue
+            # Caches do React Native ficam para o passo react_native
+            if [[ "$category" == "caches" ]]; then
+                case "${entry##*/}" in
+                    CocoaPods|Metro|com.facebook.ReactNativeBuild) continue ;;
+                esac
+            fi
             if rm -rf "$entry" 2>/dev/null; then
                 deleted=$(( deleted + 1 ))
             else

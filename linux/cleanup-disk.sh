@@ -118,9 +118,10 @@ Opcoes:
     --min-age=N      So limpa arquivos mais velhos que N dias
     -h, --help       Esta ajuda
 
-O wizard guia por passos agrupados por contexto,
-com passos de alto risco (AVD Android) sempre pedindo
-confirmacao explicita independente do --force.
+O wizard guia por passos normais agrupados por contexto e depois pelos
+passos em VERMELHO (A-E). So os vermelhos atrasam o build local de React
+Native (Metro, builds nativos, node_modules, AVDs, SDK Android) e sempre
+pedem confirmacao explicita independente do --force.
 EOF
 }
 
@@ -219,12 +220,12 @@ run_wizard() {
     # ------------------------------------------------------------------
     # PASSO 2 — Caches JS/TS
     # ------------------------------------------------------------------
-    _step_header 2 "Caches JS/TS (npm, yarn, pnpm, bun, expo, turbo, Metro)"
-    echo -e "${C_DIM}  Apaga: ~/.npm  ~/.yarn/cache  ~/.pnpm-store  ~/.bun/install/cache${C_RESET}"
-    echo -e "${C_DIM}         ~/.expo  ~/.turbo  Metro bundler / React Native cache${C_RESET}"
+    _step_header 2 "Caches JS/TS (npm, yarn, pnpm, bun, turbo)"
+    echo -e "${C_DIM}  Apaga: ~/.npm  ~/.yarn/cache  ~/.pnpm-store  ~/.bun/install/cache  ~/.turbo${C_RESET}"
+    echo -e "${C_GREEN}  - Metro, ~/.rncache e ~/.expo ficam (passo vermelho A)${C_RESET}"
     echo -e "${C_DIM}  Impacto: proximo install sera mais lento (re-download)${C_RESET}"
     if _ask "Limpar?"; then
-        selected+=(npm_cache yarn_cache pnpm_store bun_cache expo_cache turborepo_cache react_native)
+        selected+=(npm_cache yarn_cache pnpm_store bun_cache turborepo_cache)
     fi
 
     # ------------------------------------------------------------------
@@ -233,10 +234,10 @@ run_wizard() {
     _step_header 3 "Build outputs dos projetos (dist, build, .next, coverage…)"
     echo -e "${C_DIM}  Apaga: pastas dist/ build/ target/ .next/ .nuxt/ coverage/ .nyc_output/${C_RESET}"
     echo -e "${C_DIM}         dentro de ~/dev e similares${C_RESET}"
-    echo -e "${C_DIM}         + app/build Android dentro dos projetos${C_RESET}"
-    echo -e "${C_DIM}  Impacto: precisa rodar npm run build / gradlew build para recriar${C_RESET}"
+    echo -e "${C_GREEN}  - Pastas android/ ios/ node_modules/ nao sao tocadas (passo vermelho B)${C_RESET}"
+    echo -e "${C_DIM}  Impacto: precisa rodar npm run build para recriar${C_RESET}"
     if _ask "Limpar?"; then
-        selected+=(build_artifacts android_project_builds)
+        selected+=(build_artifacts)
     fi
 
     # ------------------------------------------------------------------
@@ -261,20 +262,9 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
-    # PASSO 6 — node_modules dos projetos
+    # PASSO 6 — Apps desinstalados e cache VS Code
     # ------------------------------------------------------------------
-    _step_header 6 "node_modules dos projetos em ~/dev"
-    echo -e "${C_DIM}  Apaga: todas as pastas node_modules/ encontradas em${C_RESET}"
-    echo -e "${C_DIM}         ~/dev ~/projects ~/workspace ~/code ~/Documents ~/Desktop${C_RESET}"
-    echo -e "${C_DIM}  Impacto: precisa rodar npm/yarn/pnpm install em cada projeto${C_RESET}"
-    if _ask "Limpar?"; then
-        selected+=(node_modules)
-    fi
-
-    # ------------------------------------------------------------------
-    # PASSO 7 — Apps desinstalados e cache VS Code
-    # ------------------------------------------------------------------
-    _step_header 7 "Configs de apps desinstalados e cache VS Code"
+    _step_header 6 "Configs de apps desinstalados e cache VS Code"
     echo -e "${C_DIM}  Apaga: ~/.config/<app> de apps nao instalados${C_RESET}"
     echo -e "${C_DIM}         ~/.config/Code/Cache (VS Code)${C_RESET}"
     echo -e "${C_DIM}         ~/.nvm/.cache (downloads do nvm — versoes Node mantidas)${C_RESET}"
@@ -284,9 +274,9 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
-    # PASSO 8 — Docker
+    # PASSO 7 — Docker
     # ------------------------------------------------------------------
-    _step_header 8 "Docker (volumes nao usados)"
+    _step_header 7 "Docker (volumes nao usados)"
     echo -e "${C_DIM}  Apaga: /var/lib/docker (VMs)  volumes Docker orphaned${C_RESET}"
     echo -e "${C_DIM}  Impacto: medio — volumes podem ter dados de containers parados${C_RESET}"
     if _ask "Limpar?"; then
@@ -294,9 +284,9 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
-    # PASSO 9 — Gerenciadores de pacotes do sistema
+    # PASSO 8 — Gerenciadores de pacotes do sistema
     # ------------------------------------------------------------------
-    _step_header 9 "Cache de gerenciadores de pacotes do sistema"
+    _step_header 8 "Cache de gerenciadores de pacotes do sistema"
     local -a pkg_cats=()
     local pkg_info=""
     while IFS= read -r pm; do
@@ -319,19 +309,62 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
-    # PASSO 10 — Flutter
+    # PASSO 9 — Flutter
     # ------------------------------------------------------------------
-    _step_header 10 "Cache Flutter/Dart"
+    _step_header 9 "Cache Flutter/Dart"
     echo -e "${C_DIM}  Apaga: ~/.pub-cache${C_RESET}"
     echo -e "${C_DIM}  Impacto: 'flutter pub get' re-baixa os pacotes${C_RESET}"
     if _ask "Limpar?"; then
         selected+=(flutter_cache)
     fi
 
+    # ==================================================================
+    # PASSOS VERMELHOS — so o que atrasa build/emulador do React Native
+    # ==================================================================
+    echo ""
+    echo -e "${C_RED}${C_BOLD}  Daqui pra frente, passos em VERMELHO atrasam o build local de React Native.${C_RESET}"
+    echo -e "${C_RED}${C_BOLD}  Responder 'y' significa rebuild, re-download ou recriar emulador.${C_RESET}"
+
     # ------------------------------------------------------------------
-    # PASSO A — Emuladores Android (AVD) — ALTO RISCO
+    # PASSO A — Caches do React Native
     # ------------------------------------------------------------------
-    _step_header A "Emuladores Android (AVDs)" high
+    _step_header A "Caches do React Native (Metro, ~/.rncache, ~/.expo)" high
+    echo -e "${C_RED}  Apaga: ~/.rncache  metro-*/haste-map-* em /tmp  ~/.expo${C_RESET}"
+    echo -e "${C_RED}  - Primeiro bundle do Metro refaz o cache inteiro (minutos em app grande)${C_RESET}"
+    echo -e "${C_RED}  - ~/.expo desloga e re-baixa o Expo Go no emulador${C_RESET}"
+    echo ""
+    if _ask "Apagar caches do React Native?" "force_no"; then
+        selected+=(react_native expo_cache)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO B — Builds nativos dos projetos
+    # ------------------------------------------------------------------
+    _step_header B "Builds nativos dos projetos (android/app/build)" high
+    echo -e "${C_RED}  Apaga: app/build Android dentro dos projetos em ~/dev${C_RESET}"
+    echo -e "${C_RED}  - Proximo 'run-android' recompila tudo do zero${C_RESET}"
+    echo ""
+    if _ask "Apagar builds nativos?" "force_no"; then
+        selected+=(android_project_builds)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO C — node_modules dos projetos
+    # ------------------------------------------------------------------
+    _step_header C "node_modules dos projetos em ~/dev" high
+    echo -e "${C_RED}  Apaga: todas as pastas node_modules/ encontradas em${C_RESET}"
+    echo -e "${C_RED}         ~/dev ~/projects ~/workspace ~/code ~/Documents ~/Desktop${C_RESET}"
+    echo -e "${C_RED}  - Precisa rodar yarn/npm install em cada projeto${C_RESET}"
+    echo -e "${C_RED}  - Modulos nativos sao recompilados no proximo build${C_RESET}"
+    echo ""
+    if _ask "Apagar node_modules?" "force_no"; then
+        selected+=(node_modules)
+    fi
+
+    # ------------------------------------------------------------------
+    # PASSO D — Emuladores Android (AVD)
+    # ------------------------------------------------------------------
+    _step_header D "Emuladores Android (AVDs)" high
     echo -e "${C_RED}  Apaga: ~/.android/avd — emuladores Android${C_RESET}"
     echo -e "${C_GREEN}  - 1 emulador e sempre preservado (o usado mais recentemente)${C_RESET}"
     echo -e "${C_RED}  - Os demais sao removidos permanentemente${C_RESET}"
@@ -344,9 +377,9 @@ run_wizard() {
     fi
 
     # ------------------------------------------------------------------
-    # PASSO B — Android SDK Platforms — ALTO RISCO
+    # PASSO E — Android SDK Platforms
     # ------------------------------------------------------------------
-    _step_header B "Android SDK Platforms" high
+    _step_header E "Android SDK Platforms" high
     echo -e "${C_RED}  Apaga: \$ANDROID_SDK_ROOT/platforms ou ~/Android/Sdk/platforms${C_RESET}"
     echo -e "${C_GREEN}  - A plataforma mais recente e sempre preservada${C_RESET}"
     echo -e "${C_RED}  - As demais versoes do SDK sao removidas${C_RESET}"
